@@ -505,9 +505,8 @@ enumerate_wg_peers() {
         self_ip=$(echo "$api_json" | grep -oE '"100\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | tr -d '"')
 
         # Extract all unique 100.x.x.x IPs, excluding self
-        # Use grep | sed instead of while-read pipeline (avoids subshell stdout issues)
         echo "$api_json" | grep -oE '100\.[0-9]+\.[0-9]+\.[0-9]+' | sort -u | \
-            grep -v "^${self_ip}$" | sed 's/$/|0|0|0/'
+            grep -v "^${self_ip}$" | awk '{print $0"|0|0|0"}'
         return
     fi
 
@@ -552,8 +551,8 @@ discover_peers() {
     local tmp_peers="/tmp/l2bridge-discovery.$$"
     : > "$tmp_peers"
 
-    # Source 1: WireGuard peers (kernel WG only)
-    enumerate_wg_peers >> "$tmp_peers"
+    # Source 1: WireGuard peers (kernel WG or VPN socket API)
+    enumerate_wg_peers > "$tmp_peers" 2>/dev/null
 
     # Source 2: Known IPs from aircraft.json profiles
     if [ -f "$AIRCRAFT_FILE" ]; then

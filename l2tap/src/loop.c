@@ -123,18 +123,6 @@ static void handle_tap_read(struct l2tap_ctx *ctx)
     if (ret < 0) {
         LOG_WARN("stream[%d] frame_write failed, closing", stream_idx);
         stream_close(ctx, stream_idx);
-    } else if (ret == 2) {
-        /* Backpressure — write buffer full. Stop reading from TAP until
-         * the stream's buffer drains. Enable EPOLLOUT on the stream. */
-        struct epoll_event ev_stream = {
-            .events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLERR,
-            .data.fd = s->fd,
-        };
-        epoll_ctl(ctx->epoll_fd, EPOLL_CTL_MOD, s->fd, &ev_stream);
-
-        /* Remove TAP from epoll to stop reading new frames */
-        epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, ctx->tap_fd, NULL);
-        LOG_DBG("backpressure: paused TAP reads for stream[%d]", stream_idx);
     } else if (ret == 1) {
         /* Data buffered — enable EPOLLOUT */
         struct epoll_event ev = {

@@ -55,8 +55,8 @@ int frame_write(struct stream *s, const uint8_t *eth, uint16_t len, uint16_t fla
 
     /* Already have buffered data — append */
     if (s->wlen + total > WRITE_BUF_SIZE) {
-        LOG_DBG("stream[%d] write buffer full (%zu/%d bytes), backpressure", s->slot, s->wlen, WRITE_BUF_SIZE);
-        return 2;  /* backpressure — caller should stop reading from TAP */
+        LOG_WARN("stream[%d] write buffer full, dropping frame (%zu bytes)", s->slot, total);
+        return -1;
     }
 
     memcpy(s->wbuf + s->wlen, hdr, FRAME_HDR_LEN);

@@ -474,10 +474,14 @@ enumerate_wg_peers() {
         return
     fi
 
-    # Fallback: parse ip neigh for VPN interface
+    # Fallback: parse ip neigh for VPN interface (may be empty on userspace WG)
     if [ -n "$wg_iface" ]; then
-        ip neigh show dev "$wg_iface" 2>/dev/null | awk '/100\./ { print $1"|0|0|0" }'
-        return
+        local neigh_out
+        neigh_out=$(ip neigh show dev "$wg_iface" 2>/dev/null | awk '/100\./ { print $1"|0|0|0" }')
+        if [ -n "$neigh_out" ]; then
+            echo "$neigh_out"
+            return
+        fi
     fi
 
     # Fallback: VPN client local API

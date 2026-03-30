@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Play, Square, RotateCcw, Settings, Link, Bug } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
 import { executeCommand } from '../api/client';
 import { Button } from './ui/Button';
@@ -37,12 +38,12 @@ export function BridgeControls({ status, onRefresh }: Props) {
       <div className="bg-bg-card rounded-xl border border-border p-4">
         <div className="text-sm font-semibold mb-3">Bridge Controls</div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="success" size="sm" loading={loading === 'start'} onClick={() => run('start', 'Start')}>Start</Button>
-          <Button variant="danger" size="sm" loading={loading === 'stop'} onClick={() => run('stop', 'Stop')}>Stop</Button>
-          <Button variant="warning" size="sm" loading={loading === 'restart'} onClick={() => run('restart', 'Restart')}>Restart</Button>
-          <Button variant="primary" size="sm" loading={loading === 'setup'} onClick={() => run('setup', 'Setup')}>Setup</Button>
-          <Button variant="primary" size="sm" loading={loading === 'add'} onClick={() => run('add', 'Connect')}>Connect</Button>
-          <Button variant="ghost" size="sm" loading={loading === 'debug'} onClick={() => run('debug', 'Debug')}>Debug</Button>
+          <Button variant="success" size="sm" loading={loading === 'start'} onClick={() => run('start', 'Start')}><Play className="w-3 h-3" /> Start</Button>
+          <Button variant="danger" size="sm" loading={loading === 'stop'} onClick={() => run('stop', 'Stop')}><Square className="w-3 h-3" /> Stop</Button>
+          <Button variant="warning" size="sm" loading={loading === 'restart'} onClick={() => run('restart', 'Restart')}><RotateCcw className="w-3 h-3" /> Restart</Button>
+          <Button variant="primary" size="sm" loading={loading === 'setup'} onClick={() => run('setup', 'Setup')}><Settings className="w-3 h-3" /> Setup</Button>
+          <Button variant="primary" size="sm" loading={loading === 'add'} onClick={() => run('add', 'Connect')}><Link className="w-3 h-3" /> Connect</Button>
+          <Button variant="ghost" size="sm" loading={loading === 'debug'} onClick={() => run('debug', 'Debug')}><Bug className="w-3 h-3" /> Debug</Button>
         </div>
         {status.version.update_available && (
           <div className="mt-3 text-xs text-warning">

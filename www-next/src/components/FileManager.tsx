@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import { Download, Trash2, RefreshCw, FileText, Package } from 'lucide-react';
 import { listFiles, deleteFile, getDownloadUrl } from '../api/client';
 import type { FileInfo } from '../api/types';
 import { Button } from './ui/Button';
@@ -37,7 +39,7 @@ export function FileManager() {
     <div className="bg-bg-card rounded-xl border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <span className="text-sm font-semibold">Files</span>
-        <Button size="sm" variant="ghost" onClick={refresh}>Refresh</Button>
+        <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="w-3.5 h-3.5" /></Button>
       </div>
       <div className="p-4 space-y-4">
         {captures.length > 0 && (
@@ -69,29 +71,33 @@ export function FileManager() {
 }
 
 function FileRow({ file, onDelete }: { file: FileInfo; onDelete?: (name: string) => void }) {
+  const modified = file.modified ? formatDistanceToNow(new Date(file.modified), { addSuffix: true }) : '';
+  const Icon = file.type === 'capture' ? Package : FileText;
+
   return (
     <div className="flex items-center justify-between text-sm bg-bg-input rounded-lg px-3 py-2">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-xs">
-          {file.type === 'capture' ? '\u{1F4E6}' : '\u{1F4C4}'}
-        </span>
+        <Icon className="w-3.5 h-3.5 text-text-secondary/60 flex-shrink-0" />
         <span className="truncate font-mono text-xs">{file.name}</span>
         <span className="text-text-secondary text-xs whitespace-nowrap">{formatBytes(file.size)}</span>
+        {modified && <span className="text-text-secondary/50 text-xs whitespace-nowrap">{modified}</span>}
       </div>
       <div className="flex gap-1 ml-2">
         <a
           href={getDownloadUrl(file.name)}
           download={file.name}
-          className="text-xs text-accent hover:text-accent-hover px-2 py-1 rounded hover:bg-accent/10 transition-colors"
+          className="p-1.5 text-accent hover:text-accent-hover rounded hover:bg-accent/10 transition-colors"
+          title="Download"
         >
-          Download
+          <Download className="w-3.5 h-3.5" />
         </a>
         {onDelete && (
           <button
             onClick={() => onDelete(file.name)}
-            className="text-xs text-error hover:text-error/80 px-2 py-1 rounded hover:bg-error/10 transition-colors"
+            className="p-1.5 text-error hover:text-error/80 rounded hover:bg-error/10 transition-colors"
+            title="Delete"
           >
-            Delete
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
       </div>

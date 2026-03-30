@@ -5,6 +5,7 @@ import {
   connectAircraft, setActiveAircraft, addPeerIp,
   getLinkSettings, updateLinkSettings,
 } from '../api/client';
+import { linkSettingsSchema, aircraftNameSchema, vpnIpSchema } from '../lib/schemas';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
@@ -67,7 +68,11 @@ function BindModal({
   };
 
   const handleBind = async (pass?: string) => {
-    if (!peer || !name.trim()) { toast('Aircraft name is required', 'error'); return; }
+    const nameResult = aircraftNameSchema.safeParse(name.trim());
+    if (!peer || !nameResult.success) {
+      toast(nameResult.success ? 'Aircraft name is required' : nameResult.error.issues[0].message, 'error');
+      return;
+    }
     setRunning(true);
     setNeedsPassword(false);
     setOutput('Connecting to ' + peer.ip + '...\n');
@@ -343,8 +348,23 @@ function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
     if (preset) setEdited(preset);
   };
 
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const handleSave = async () => {
-    if (!hasChanges) return;
+    if (!hasChanges || !current) return;
+    // Validate all fields
+    const result = linkSettingsSchema.safeParse(current);
+    if (!result.success) {
+      const fieldErrors: Record<string, string> = {};
+      result.error.issues.forEach(issue => {
+        const field = issue.path[0] as string;
+        fieldErrors[field] = issue.message;
+      });
+      setErrors(fieldErrors);
+      toast('Invalid settings — check highlighted fields', 'error');
+      return;
+    }
+    setErrors({});
     setSaving(true);
     try {
       const res = await updateLinkSettings(edited, true);
@@ -395,15 +415,18 @@ function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
               <div className="font-medium text-text-primary mb-1">{FIELD_HELP[field].label}</div>
               {FIELD_HELP[field].help}
             </div>
-            <input
-              type="number"
-              value={current[field]}
-              onChange={e => handleChange(field, e.target.value)}
-              className={cn(
-                'w-28 bg-bg-input border rounded px-2 py-1 text-xs text-right font-mono text-text-primary',
-                edited[field] !== undefined ? 'border-accent' : 'border-border',
-              )}
-            />
+            <div className="flex flex-col items-end">
+              <input
+                type="number"
+                value={current[field]}
+                onChange={e => { handleChange(field, e.target.value); setErrors(prev => { const n = {...prev}; delete n[field]; return n; }); }}
+                className={cn(
+                  'w-28 bg-bg-input border rounded px-2 py-1 text-xs text-right font-mono text-text-primary',
+                  errors[field] ? 'border-error' : edited[field] !== undefined ? 'border-accent' : 'border-border',
+                )}
+              />
+              {errors[field] && <span className="text-[10px] text-error mt-0.5">{errors[field]}</span>}
+            </div>
           </div>
         ))}
       </div>
@@ -525,7 +548,8 @@ export function BindingManager({ onRefresh }: Props) {
           </div>
           <form className="flex gap-1" onSubmit={async (e) => {
             e.preventDefault();
-            if (!manualIp) return;
+            const ipResult = vpnIpSchema.safeParse(manualIp);
+            if (!ipResult.success) { toast(ipResult.error.issues[0].message, 'error'); return; }
             try {
               await addPeerIp(manualIp);
               toast('Peer added, refreshing...', 'success');

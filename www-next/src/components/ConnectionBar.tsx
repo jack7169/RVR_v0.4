@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import { Wifi, WifiOff } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
-import { formatDuration } from '../lib/utils';
-import { cn } from '../lib/utils';
+import { formatDuration, cn } from '../lib/utils';
 
 interface Props {
   status: StatusResponse;
@@ -26,6 +27,10 @@ export function ConnectionBar({ status, lastUpdate }: Props) {
           'w-2.5 h-2.5 rounded-full animate-[pulse-dot_2s_infinite]',
           connection.established ? 'bg-success' : 'bg-error',
         )} />
+        {connection.established
+          ? <Wifi className="w-4 h-4 text-success" />
+          : <WifiOff className="w-4 h-4 text-error" />
+        }
         <span className="font-medium text-sm">
           {connection.established ? 'Connected' : 'Disconnected'}
         </span>
@@ -35,7 +40,7 @@ export function ConnectionBar({ status, lastUpdate }: Props) {
       </div>
       {lastUpdate && (
         <span className="text-text-secondary text-xs">
-          Updated {lastUpdate.toLocaleTimeString()}
+          Updated {formatDistanceToNow(lastUpdate, { addSuffix: true })}
         </span>
       )}
     </div>

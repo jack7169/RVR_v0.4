@@ -1054,7 +1054,7 @@ start_service() {
         sleep 2; elapsed=$((elapsed + 2))
     done
     procd_open_instance
-    procd_set_param command /usr/bin/l2tap -m server -l 127.0.0.1:655 -t l2bridge -u /etc/l2bridge/l2tap-up -d /etc/l2bridge/l2tap-down -s /tmp/l2tap.stats
+    procd_set_param command /usr/bin/l2tap -m server -l 127.0.0.1:655 -t l2bridge -u /etc/l2bridge/l2tap-up -d /etc/l2bridge/l2tap-down -s /tmp/l2tap.stats -L 1000 -H 2000
     procd_set_param respawn 3600 5 5
     procd_set_param stderr 1
     procd_set_param stdout 1
@@ -1198,7 +1198,7 @@ start_service() {
         sleep 2; elapsed=$((elapsed + 2))
     done
     procd_open_instance
-    procd_set_param command /usr/bin/l2tap -m client -c 127.0.0.1:4001 -t l2bridge -u /etc/l2bridge/l2tap-up -d /etc/l2bridge/l2tap-down -s /tmp/l2tap.stats
+    procd_set_param command /usr/bin/l2tap -m client -c 127.0.0.1:4001 -t l2bridge -u /etc/l2bridge/l2tap-up -d /etc/l2bridge/l2tap-down -s /tmp/l2tap.stats -L 1000 -H 2000
     procd_set_param respawn 3600 5 5
     procd_set_param stderr 1
     procd_set_param stdout 1

@@ -51,9 +51,10 @@ struct stream {
     uint8_t   rbuf[READ_BUF_SIZE];
     size_t    rlen;
 
-    /* Write buffer (backpressure) */
+    /* Write buffer */
     uint8_t   wbuf[WRITE_BUF_SIZE];
     size_t    wlen;
+    struct timespec wbuf_oldest;  /* timestamp of oldest data in wbuf */
 
     /* Stats */
     uint64_t  bytes_rx;
@@ -83,6 +84,8 @@ struct l2tap_config {
     char      down_script[256];/* script to run before shutdown */
     char      stats_file[256]; /* path to write periodic stats */
     int       verbose;
+    int       soft_latency_ms; /* warn when frame age exceeds this (default 1000) */
+    int       hard_latency_ms; /* drop frames older than this (default 2000) */
 };
 
 struct l2tap_ctx {
@@ -101,6 +104,8 @@ struct l2tap_ctx {
     uint64_t             tap_tx_bytes;
     uint64_t             tap_rx_frames;
     uint64_t             tap_tx_frames;
+    uint64_t             soft_drops;
+    uint64_t             hard_drops;
 
     /* Timers */
     time_t               last_gc;

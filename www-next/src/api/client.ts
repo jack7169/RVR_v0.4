@@ -98,6 +98,18 @@ export async function updateLinkSettings(
   return postApi({ action: 'update_link_settings', settings, restart });
 }
 
+export async function fetchLinkProfile(): Promise<import('./types').LinkProfile> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=get_link_profile`);
+  if (!res.ok) throw new Error(`Link profile fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateLinkProfile(
+  upload_mbps: number, download_mbps: number, latency_budget_ms: number,
+): Promise<CommandResponse> {
+  return postApi({ action: 'update_link_profile', upload_mbps: String(upload_mbps), download_mbps: String(download_mbps), latency_budget_ms: String(latency_budget_ms) });
+}
+
 export async function fetchOutages(): Promise<import('./types').OutageResponse> {
   const res = await fetch(`${API_BASE}/api.cgi?action=outages`);
   if (!res.ok) throw new Error(`Outages fetch failed: ${res.status}`);

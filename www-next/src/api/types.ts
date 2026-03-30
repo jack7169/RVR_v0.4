@@ -214,6 +214,19 @@ export interface KcpStats {
   lost: number;
 }
 
+export interface LinkProfile {
+  upload_mbps: number;
+  download_mbps: number;
+  latency_budget_ms: number;
+  computed?: {
+    sockbuf: number;
+    smuxbuf: number;
+    streambuf: number;
+    sndwnd: number;
+    rcvwnd: number;
+  };
+}
+
 export interface BindingDetail {
   profile_id: string;
   name: string;

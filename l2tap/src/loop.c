@@ -119,6 +119,30 @@ static void handle_tap_read(struct l2tap_ctx *ctx)
     }
 
     s->last_active = time(NULL);
+
+    /* Check age of oldest data in write buffer — enforce latency thresholds */
+    if (s->wlen > 0 && ctx->cfg.hard_latency_ms > 0) {
+        struct timespec now_ts;
+        clock_gettime(CLOCK_MONOTONIC, &now_ts);
+        long age_ms = (now_ts.tv_sec - s->wbuf_oldest.tv_sec) * 1000 +
+                      (now_ts.tv_nsec - s->wbuf_oldest.tv_nsec) / 1000000;
+        if (age_ms > ctx->cfg.hard_latency_ms) {
+            /* Hard cut — drop the stale buffered data and this frame */
+            LOG_DBG("stream[%d] hard drop: buffer age %ldms > %dms, clearing %zu bytes",
+                    stream_idx, age_ms, ctx->cfg.hard_latency_ms, s->wlen);
+            s->wlen = 0;
+            ctx->hard_drops++;
+            return;
+        } else if (age_ms > ctx->cfg.soft_latency_ms) {
+            ctx->soft_drops++;
+        }
+    }
+
+    /* Timestamp when write buffer first gets data */
+    if (s->wlen == 0) {
+        clock_gettime(CLOCK_MONOTONIC, &s->wbuf_oldest);
+    }
+
     int ret = frame_write(s, frame, (uint16_t)n, FLAG_NONE);
     if (ret < 0) {
         LOG_WARN("stream[%d] frame_write failed, closing", stream_idx);

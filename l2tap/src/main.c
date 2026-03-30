@@ -22,6 +22,8 @@ static void usage(const char *prog)
         "  -u <script>   Up script (run after TAP creation)\n"
         "  -d <script>   Down script (run before shutdown)\n"
         "  -s <file>     Stats file path (default: /tmp/l2tap.stats)\n"
+        "  -L <ms>       Soft latency cut — warn when frame age exceeds this (default: 1000)\n"
+        "  -H <ms>       Hard latency cut — drop frames older than this (default: 2000)\n"
         "  -v            Verbose logging\n"
         "  -h            Show this help\n"
         "\n"
@@ -78,6 +80,8 @@ int main(int argc, char *argv[])
     g_ctx.cfg.mode = -1;
     strncpy(g_ctx.cfg.tap_name, "l2bridge", sizeof(g_ctx.cfg.tap_name) - 1);
     strncpy(g_ctx.cfg.stats_file, "/tmp/l2tap.stats", sizeof(g_ctx.cfg.stats_file) - 1);
+    g_ctx.cfg.soft_latency_ms = 1000;
+    g_ctx.cfg.hard_latency_ms = 2000;
 
     /* Default addresses */
     strncpy(g_ctx.cfg.listen_addr, "127.0.0.1", sizeof(g_ctx.cfg.listen_addr) - 1);
@@ -86,7 +90,7 @@ int main(int argc, char *argv[])
     g_ctx.cfg.connect_port = 4001;
 
     int opt;
-    while ((opt = getopt(argc, argv, "m:l:c:t:u:d:s:vh")) != -1) {
+    while ((opt = getopt(argc, argv, "m:l:c:t:u:d:s:L:H:vh")) != -1) {
         switch (opt) {
         case 'm':
             if (strcmp(optarg, "server") == 0)
@@ -125,6 +129,12 @@ int main(int argc, char *argv[])
         case 's':
             strncpy(g_ctx.cfg.stats_file, optarg,
                     sizeof(g_ctx.cfg.stats_file) - 1);
+            break;
+        case 'L':
+            g_ctx.cfg.soft_latency_ms = atoi(optarg);
+            break;
+        case 'H':
+            g_ctx.cfg.hard_latency_ms = atoi(optarg);
             break;
         case 'v':
             g_ctx.cfg.verbose = 1;

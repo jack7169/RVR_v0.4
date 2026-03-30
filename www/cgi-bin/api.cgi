@@ -1027,6 +1027,95 @@ get_stats_history() {
 }
 
 # Get current link settings from kcptun server config
+# Compute and apply buffer sizes from link speed profile
+# Formula: per_stage_bytes = (upload_bps / 8) * (latency_ms / 1000) / 4
+update_link_profile() {
+    local upload_mbps="$1"
+    local download_mbps="$2"
+    local latency_ms="$3"
+
+    [ -z "$upload_mbps" ] && json_error "upload_mbps required"
+    [ -z "$latency_ms" ] && latency_ms=2000
+
+    # Compute buffer sizes (4 stages: sockbuf, smuxbuf, streambuf, sndwnd)
+    local upload_bps=$((upload_mbps * 1000000))
+    local per_stage=$((upload_bps / 8 * latency_ms / 1000 / 4))
+
+    # Clamp minimums
+    [ "$per_stage" -lt 65536 ] && per_stage=65536
+
+    local sockbuf=$per_stage
+    local smuxbuf=$per_stage
+    local streambuf=$((per_stage / 2))
+    [ "$streambuf" -lt 65536 ] && streambuf=65536
+    local sndwnd=$((per_stage / 1200))
+    [ "$sndwnd" -lt 32 ] && sndwnd=32
+    local rcvwnd=$sndwnd
+
+    # Save link profile
+    mkdir -p /etc/l2bridge
+    printf '{"upload_mbps":%s,"download_mbps":%s,"latency_budget_ms":%s,"computed":{"sockbuf":%s,"smuxbuf":%s,"streambuf":%s,"sndwnd":%s,"rcvwnd":%s}}\n' \
+        "$upload_mbps" "${download_mbps:-$upload_mbps}" "$latency_ms" \
+        "$sockbuf" "$smuxbuf" "$streambuf" "$sndwnd" "$rcvwnd" > /etc/l2bridge/link_profile.json
+
+    # Apply to local kcptun config
+    local config="/etc/kcptun/server.json"
+    [ -f "/etc/kcptun/client.json" ] && config="/etc/kcptun/client.json"
+
+    if [ -f "$config" ]; then
+        sed -i "s/\"sockbuf\":[[:space:]]*[0-9]*/\"sockbuf\": $sockbuf/" "$config"
+        sed -i "s/\"smuxbuf\":[[:space:]]*[0-9]*/\"smuxbuf\": $smuxbuf/" "$config"
+        sed -i "s/\"streambuf\":[[:space:]]*[0-9]*/\"streambuf\": $streambuf/" "$config"
+        sed -i "s/\"sndwnd\":[[:space:]]*[0-9]*/\"sndwnd\": $sndwnd/" "$config"
+        sed -i "s/\"rcvwnd\":[[:space:]]*[0-9]*/\"rcvwnd\": $rcvwnd/" "$config"
+    fi
+
+    # Apply to remote peer via SSH
+    local aircraft_ip=""
+    [ -f /etc/l2bridge.conf ] && . /etc/l2bridge.conf
+    if [ -n "$AIRCRAFT_IP" ] && [ -f "$SSH_KEY" ]; then
+        _ssh_remote "$AIRCRAFT_IP" "
+            for cfg in /etc/kcptun/server.json /etc/kcptun/client.json; do
+                [ -f \"\$cfg\" ] || continue
+                sed -i 's/\"sockbuf\":[[:space:]]*[0-9]*/\"sockbuf\": $sockbuf/' \"\$cfg\"
+                sed -i 's/\"smuxbuf\":[[:space:]]*[0-9]*/\"smuxbuf\": $smuxbuf/' \"\$cfg\"
+                sed -i 's/\"streambuf\":[[:space:]]*[0-9]*/\"streambuf\": $streambuf/' \"\$cfg\"
+                sed -i 's/\"sndwnd\":[[:space:]]*[0-9]*/\"sndwnd\": $sndwnd/' \"\$cfg\"
+                sed -i 's/\"rcvwnd\":[[:space:]]*[0-9]*/\"rcvwnd\": $rcvwnd/' \"\$cfg\"
+            done
+            mkdir -p /etc/l2bridge
+            printf '{\"upload_mbps\":%s,\"download_mbps\":%s,\"latency_budget_ms\":%s}' '$upload_mbps' '${download_mbps:-$upload_mbps}' '$latency_ms' > /etc/l2bridge/link_profile.json
+        " 2>/dev/null
+    fi
+
+    # Restart kcptun on both sides
+    if [ -f /etc/init.d/kcptun-server ]; then
+        /etc/init.d/kcptun-server restart 2>/dev/null
+    elif [ -f /etc/init.d/kcptun-client ]; then
+        /etc/init.d/kcptun-client restart 2>/dev/null
+    fi
+    if [ -n "$AIRCRAFT_IP" ] && [ -f "$SSH_KEY" ]; then
+        _ssh_remote "$AIRCRAFT_IP" "
+            [ -f /etc/init.d/kcptun-server ] && /etc/init.d/kcptun-server restart 2>/dev/null
+            [ -f /etc/init.d/kcptun-client ] && /etc/init.d/kcptun-client restart 2>/dev/null
+        " 2>/dev/null
+    fi
+
+    json_response "{\"success\": true, \"message\": \"Link profile applied\", \"sockbuf\": $sockbuf, \"smuxbuf\": $smuxbuf, \"streambuf\": $streambuf, \"sndwnd\": $sndwnd, \"rcvwnd\": $rcvwnd}"
+}
+
+# Return current link profile
+get_link_profile() {
+    echo "Content-Type: application/json"
+    echo ""
+    if [ -f /etc/l2bridge/link_profile.json ]; then
+        cat /etc/l2bridge/link_profile.json
+    else
+        printf '{"upload_mbps":15,"download_mbps":150,"latency_budget_ms":2000}\n'
+    fi
+    exit 0
+}
+
 get_link_settings_action() {
     local config="/etc/kcptun/server.json"
 
@@ -1350,6 +1439,15 @@ main() {
             ;;
         stats_history)
             get_stats_history
+            ;;
+        get_link_profile)
+            get_link_profile
+            ;;
+        update_link_profile)
+            local up=$(parse_json "upload_mbps" "$post_data")
+            local down=$(parse_json "download_mbps" "$post_data")
+            local lat=$(parse_json "latency_budget_ms" "$post_data")
+            update_link_profile "$up" "$down" "$lat"
             ;;
         get_link_settings)
             get_link_settings_action

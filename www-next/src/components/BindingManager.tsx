@@ -3,7 +3,7 @@ import type { DiscoveredPeer, PeerDiscovery, AircraftProfiles, LinkSettings } fr
 import {
   discoverPeers, listAircraft, bindAircraft, unbindAircraft,
   connectAircraft, setActiveAircraft, addPeerIp,
-  getLinkSettings, updateLinkSettings,
+  getLinkSettings, updateLinkSettings, fetchLinkProfile, updateLinkProfile,
 } from '../api/client';
 import { linkSettingsSchema, aircraftNameSchema, vpnIpSchema } from '../lib/schemas';
 import { Card } from './ui/Card';
@@ -315,6 +315,74 @@ const FIELD_HELP: Record<keyof LinkSettings, { label: string; help: string }> = 
   },
 };
 
+const LINK_PRESETS: Record<string, { up: number; down: number; lat: number }> = {
+  'Starlink Direct': { up: 15, down: 150, lat: 2000 },
+  'Relay (DERP)': { up: 5, down: 5, lat: 2000 },
+};
+
+function LinkProfileSection() {
+  const [profile, setProfile] = useState({ upload_mbps: 15, download_mbps: 150, latency_budget_ms: 2000 });
+  const [applying, setApplying] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchLinkProfile().then(p => setProfile({ upload_mbps: p.upload_mbps, download_mbps: p.download_mbps, latency_budget_ms: p.latency_budget_ms })).catch(() => {});
+  }, []);
+
+  const handleApply = async () => {
+    setApplying(true);
+    try {
+      const res = await updateLinkProfile(profile.upload_mbps, profile.download_mbps, profile.latency_budget_ms);
+      if (res.success) {
+        toast('Link profile applied — buffers resized, kcptun restarted', 'success');
+      } else {
+        toast(res.error || 'Failed to apply', 'error');
+      }
+    } catch { toast('Failed', 'error'); }
+    finally { setApplying(false); }
+  };
+
+  return (
+    <div className="mb-4 pb-4 border-b border-border">
+      <div className="text-xs font-semibold text-text-secondary mb-2">Link Profile</div>
+      <div className="flex gap-2 mb-2 flex-wrap">
+        {Object.entries(LINK_PRESETS).map(([name, p]) => (
+          <button
+            key={name}
+            onClick={() => setProfile({ upload_mbps: p.up, download_mbps: p.down, latency_budget_ms: p.lat })}
+            className="text-xs bg-border/30 hover:bg-border/50 px-2 py-1 rounded transition-colors"
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <label className="text-[10px] text-text-secondary">Upload (Mbps)</label>
+          <input type="number" value={profile.upload_mbps} onChange={e => setProfile(p => ({ ...p, upload_mbps: Number(e.target.value) }))}
+            className="w-full bg-bg-input border border-border rounded px-2 py-1 text-xs font-mono text-text-primary" />
+        </div>
+        <div>
+          <label className="text-[10px] text-text-secondary">Download (Mbps)</label>
+          <input type="number" value={profile.download_mbps} onChange={e => setProfile(p => ({ ...p, download_mbps: Number(e.target.value) }))}
+            className="w-full bg-bg-input border border-border rounded px-2 py-1 text-xs font-mono text-text-primary" />
+        </div>
+        <div>
+          <label className="text-[10px] text-text-secondary">Latency Budget (ms)</label>
+          <input type="number" value={profile.latency_budget_ms} onChange={e => setProfile(p => ({ ...p, latency_budget_ms: Number(e.target.value) }))}
+            className="w-full bg-bg-input border border-border rounded px-2 py-1 text-xs font-mono text-text-primary" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-2">
+        <span className="text-[10px] text-text-secondary">
+          Buffers auto-computed: ~{Math.round(profile.upload_mbps * 1000000 / 8 * profile.latency_budget_ms / 1000 / 4 / 1024)}KB per stage
+        </span>
+        <Button size="sm" variant="primary" onClick={handleApply} loading={applying}>Apply Profile</Button>
+      </div>
+    </div>
+  );
+}
+
 function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
   const [settings, setSettings] = useState<LinkSettings | null>(null);
   const [edited, setEdited] = useState<Partial<LinkSettings>>({});
@@ -391,8 +459,10 @@ function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
 
   return (
     <Card title="Link Settings" badge={hasChanges ? <Badge variant="warning">Unsaved</Badge> : undefined}>
+      <LinkProfileSection />
+
       <div className="mb-3 flex gap-2 flex-wrap">
-        <span className="text-xs text-text-secondary self-center">Presets:</span>
+        <span className="text-xs text-text-secondary self-center">KCPtun Presets:</span>
         {Object.keys(PRESETS).map(name => (
           <button
             key={name}

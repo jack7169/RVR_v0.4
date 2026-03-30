@@ -480,13 +480,15 @@ enumerate_wg_peers() {
         return
     fi
 
-    # Fallback: Tailscale/Headscale local API (both expose same interface)
-    # This is not VPN-provider-specific — both Tailscale and Headscale clients
-    # serve the same localapi at this socket path.
-    local ts_socket="/var/run/tailscale/tailscaled.sock"
-    if [ -S "$ts_socket" ]; then
-        # curl to Unix socket — extract peer IPs from status JSON
-        curl -s --unix-socket "$ts_socket" http://local/localapi/v0/status 2>/dev/null | \
+    # Fallback: VPN client local API
+    # Both Tailscale and Headscale clients run the same tailscaled daemon
+    # which exposes a local Unix socket API. Probe known socket paths.
+    local vpn_socket=""
+    for sock in /var/run/tailscale/tailscaled.sock /run/tailscale/tailscaled.sock /var/run/tailscaled.sock; do
+        [ -S "$sock" ] && { vpn_socket="$sock"; break; }
+    done
+    if [ -n "$vpn_socket" ] && command -v curl >/dev/null 2>&1; then
+        curl -s --max-time 2 --unix-socket "$vpn_socket" http://local/localapi/v0/status 2>/dev/null | \
             awk -F'"' '/"TailscaleIPs"/{getline; if(/100\./) {gsub(/[" \[\],]/,"",$0); print $0"|0|0|0"}}' 2>/dev/null
         return
     fi

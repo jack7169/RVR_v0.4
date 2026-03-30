@@ -53,6 +53,7 @@ jobs:
             git commit -m "Build l2tap-aarch64 binary
 
           [skip ci]"
+            git pull --rebase origin main
             git push
           fi
 

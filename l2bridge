@@ -393,6 +393,11 @@ wait_for_bridge() {
             # Bridge port states: 0=disabled, 1=listening, 2=learning, 3=forwarding
             if [ "$state" = "3" ]; then
                 log_info "Bridge forwarding after ${elapsed}s"
+                # Sync connection timestamp to both sides
+                local conn_ts=$(date +%s)
+                echo "$conn_ts" > /tmp/l2bridge.connected
+                local peer_ip=$(get_aircraft_ip 2>/dev/null)
+                [ -n "$peer_ip" ] && ssh_aircraft "$peer_ip" "echo $conn_ts > /tmp/l2bridge.connected" 2>/dev/null || true
                 return 0
             fi
             # If STP is disabled, port goes straight to forwarding (state file may not exist)
@@ -400,6 +405,10 @@ wait_for_bridge() {
                 # No STP state file — check if interface is UP and in bridge
                 if bridge link show dev l2bridge 2>/dev/null | grep -q "state"; then
                     log_info "Bridge ready after ${elapsed}s (no STP)"
+                    local conn_ts=$(date +%s)
+                    echo "$conn_ts" > /tmp/l2bridge.connected
+                    local peer_ip=$(get_aircraft_ip 2>/dev/null)
+                    [ -n "$peer_ip" ] && ssh_aircraft "$peer_ip" "echo $conn_ts > /tmp/l2bridge.connected" 2>/dev/null || true
                     return 0
                 fi
             fi

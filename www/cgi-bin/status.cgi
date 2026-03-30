@@ -241,9 +241,10 @@ fi
 CONNECTION_ESTABLISHED="false"
 CONNECTION_DURATION=0
 
-# Connected if local bridge is fully up, or l2tap running + aircraft reachable
-if { [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && [ "$IFACE_STATUS" = "up" ]; } || \
-   { [ "$L2TAP_STATUS" = "running" ] && [ "$AIRCRAFT_REACHABLE" = "true" ]; }; then
+# Connection requires: local kcptun + l2tap running + remote peer reachable
+# Reset uptime when connection drops, restart when it comes back
+if [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
+   [ "$IFACE_STATUS" = "up" ] && [ "$AIRCRAFT_REACHABLE" = "true" ]; then
     CONNECTION_ESTABLISHED="true"
     if [ ! -f "$CONNECTED_SINCE_FILE" ]; then
         date +%s > "$CONNECTED_SINCE_FILE"
@@ -251,7 +252,17 @@ if { [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && [ "$
     CONNECTED_SINCE=$(cat "$CONNECTED_SINCE_FILE" 2>/dev/null)
     NOW=$(date +%s)
     CONNECTION_DURATION=$((NOW - CONNECTED_SINCE))
+elif [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
+     [ "$IFACE_STATUS" = "up" ]; then
+    # Services up but remote unreachable — keep connected status briefly (may be transient)
+    if [ -f "$CONNECTED_SINCE_FILE" ]; then
+        CONNECTION_ESTABLISHED="true"
+        CONNECTED_SINCE=$(cat "$CONNECTED_SINCE_FILE" 2>/dev/null)
+        NOW=$(date +%s)
+        CONNECTION_DURATION=$((NOW - CONNECTED_SINCE))
+    fi
 else
+    # Services down — reset connection tracking
     rm -f "$CONNECTED_SINCE_FILE" 2>/dev/null
 fi
 

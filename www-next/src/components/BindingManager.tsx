@@ -261,16 +261,6 @@ const PRESETS: Record<string, Partial<LinkSettings>> = {
     kcp_segment_mtu: 1200, kcp_sndwnd: 1024, kcp_rcvwnd: 1024,
     kcp_sockbuf: 8388608, kcp_smuxbuf: 8388608, kcp_streambuf: 2097152, bridge_mtu: 1500,
   },
-  'Low Latency': {
-    kcp_nodelay: 1, kcp_interval: 10, kcp_resend: 2, kcp_nc: 1,
-    kcp_segment_mtu: 1200, kcp_sndwnd: 512, kcp_rcvwnd: 512,
-    kcp_sockbuf: 4194304, kcp_smuxbuf: 4194304, kcp_streambuf: 1048576, bridge_mtu: 1500,
-  },
-  'High Throughput': {
-    kcp_nodelay: 1, kcp_interval: 30, kcp_resend: 4, kcp_nc: 1,
-    kcp_segment_mtu: 1200, kcp_sndwnd: 2048, kcp_rcvwnd: 2048,
-    kcp_sockbuf: 16777216, kcp_smuxbuf: 16777216, kcp_streambuf: 4194304, bridge_mtu: 1500,
-  },
 };
 
 const FIELD_LABELS: Record<keyof LinkSettings, { label: string; tooltip: string }> = {
@@ -287,13 +277,13 @@ const FIELD_LABELS: Record<keyof LinkSettings, { label: string; tooltip: string 
   bridge_mtu: { label: 'Bridge MTU', tooltip: 'L2 bridge interface MTU. 1500=standard Ethernet' },
 };
 
-function LinkSettingsPanel() {
+function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
   const [settings, setSettings] = useState<LinkSettings | null>(null);
   const [edited, setEdited] = useState<Partial<LinkSettings>>({});
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const data = await getLinkSettings();
       setSettings(data);
@@ -301,9 +291,9 @@ function LinkSettingsPanel() {
     } catch {
       // Settings may not exist yet
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load, refreshKey]);
 
   const current = settings ? { ...settings, ...edited } : null;
   const hasChanges = Object.keys(edited).length > 0;
@@ -401,6 +391,7 @@ export function BindingManager({ onRefresh }: Props) {
   const [bindPeer, setBindPeer] = useState<DiscoveredPeer | null>(null);
   const [loading, setLoading] = useState(true);
   const [manualIp, setManualIp] = useState('');
+  const [settingsKey, setSettingsKey] = useState(0);
   const { toast } = useToast();
 
   const loadData = useCallback(async () => {
@@ -594,14 +585,14 @@ export function BindingManager({ onRefresh }: Props) {
       </Card>
 
       {/* Link Settings */}
-      <LinkSettingsPanel />
+      <LinkSettingsPanel refreshKey={settingsKey} />
 
       {/* Bind Modal */}
       <BindModal
         peer={bindPeer}
         open={bindPeer !== null}
         onClose={() => setBindPeer(null)}
-        onSuccess={() => { setBindPeer(null); loadData(); onRefresh(); }}
+        onSuccess={() => { setBindPeer(null); loadData(); setSettingsKey(k => k + 1); onRefresh(); }}
       />
     </div>
   );

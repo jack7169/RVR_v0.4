@@ -64,6 +64,7 @@ TAILSCALE_CHECK_INTERVAL=5
 KCPTUN_SETTLE_TIME=3
 SERVICE_RESTART_DELAY=5
 HEALTH_CHECK_INTERVAL=30
+STP_TIMEOUT=45
 
 STATE_FILE="/etc/l2bridge.conf"
 HEALTH_FILE="/tmp/l2bridge.health"
@@ -373,6 +374,43 @@ wait_for_tailscale() {
 
 is_tailscale_ready() {
     tailscale status >/dev/null 2>&1 && [ -n "$(get_tailscale_ip_nowait)" ]
+}
+
+# Wait for L2 bridge to reach forwarding state (STP convergence)
+# Polls bridge port state every 2s instead of hard-coded sleep.
+# Returns 0 on success, 1 on timeout.
+wait_for_bridge() {
+    local timeout="${1:-$STP_TIMEOUT}"
+    local elapsed=0
+
+    log_info "Waiting for bridge convergence (max ${timeout}s)..."
+
+    while [ $elapsed -lt $timeout ]; do
+        # Check if l2bridge interface exists and is in forwarding state
+        if ip link show l2bridge >/dev/null 2>&1; then
+            local state
+            state=$(cat /sys/class/net/l2bridge/brport/state 2>/dev/null)
+            # Bridge port states: 0=disabled, 1=listening, 2=learning, 3=forwarding
+            if [ "$state" = "3" ]; then
+                log_info "Bridge forwarding after ${elapsed}s"
+                return 0
+            fi
+            # If STP is disabled, port goes straight to forwarding (state file may not exist)
+            if [ ! -f /sys/class/net/l2bridge/brport/state ]; then
+                # No STP state file — check if interface is UP and in bridge
+                if bridge link show dev l2bridge 2>/dev/null | grep -q "state"; then
+                    log_info "Bridge ready after ${elapsed}s (no STP)"
+                    return 0
+                fi
+            fi
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+        [ $((elapsed % 10)) -eq 0 ] && log_info "Bridge convergence: ${elapsed}s elapsed..."
+    done
+
+    log_warn "Bridge convergence timeout after ${timeout}s"
+    return 1
 }
 
 resolve_aircraft() {
@@ -1171,8 +1209,7 @@ chmod +x /etc/init.d/l2tap'
     echo "[*] Starting services..."
     cmd_start_internal "$AIRCRAFT_IP"
 
-    echo "[*] Waiting for STP convergence (45s)..."
-    sleep 45
+    wait_for_bridge
 
     # Post-start verification
     echo ""
@@ -1253,8 +1290,7 @@ cmd_restart() {
     cmd_stop_internal "$AIRCRAFT_IP"
     sleep $SERVICE_RESTART_DELAY
     cmd_start_internal "$AIRCRAFT_IP"
-    echo "[*] Waiting for STP (45s)..."
-    sleep 45
+    wait_for_bridge
     cmd_status
 }
 
@@ -1826,8 +1862,7 @@ cmd_add() {
     echo "[*] Starting services..."
     cmd_start_internal "$AIRCRAFT_IP"
 
-    echo "[*] Waiting for STP convergence (45s)..."
-    sleep 45
+    wait_for_bridge
 
     echo ""
     cmd_status

@@ -144,7 +144,7 @@ static void handle_tap_read(struct l2tap_ctx *ctx)
         clock_gettime(CLOCK_MONOTONIC, &s->wbuf_oldest);
     }
 
-    int ret = frame_write(s, frame, (uint16_t)n, FLAG_NONE);
+    int ret = frame_write(s, frame, (uint16_t)n, 0);
     if (ret < 0) {
         LOG_WARN("stream[%d] frame_write failed, closing", stream_idx);
         stream_close(ctx, stream_idx);

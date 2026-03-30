@@ -5,10 +5,14 @@ Multi-stream Layer 2 bridge for BVLOS remotely piloted aircraft over Starlink sa
 ## What's New in v0.4
 
 - **l2tap proxy** replaces tinc — per-flow multi-stream tunneling eliminates head-of-line blocking (up to 128 streams)
+- **Adaptive buffer sizing** — buffers auto-computed from link speed + latency budget (no more hardcoded 8MB buffers)
+- **Link quality monitoring** — Starlink-style outage panel with KCPtun retransmit tracking, timeline, uptime %
+- **Latency thresholds** — soft/hard drop at 1s/2s prevents stale data from consuming bandwidth
 - **Web UI with binding management** — discover VPN peers, one-click aircraft binding with real-time setup logs
 - **VPN-agnostic peer discovery** — WireGuard peer enumeration + HTTP probes, works on Tailscale/Headscale/raw WG
+- **Speed test + packet storm** — iperf3 TCP/UDP through the bridge (not WAN), with pre/post error checking
 - **Network charts** — recharts area charts with server-side 6h history, instant time window switching
-- **Link tuning** — KCPtun parameter editor with Starlink Optimized preset and detailed per-field help
+- **Link profiles** — presets for Starlink Direct (15/150Mbps) and Relay (5/5Mbps) with auto buffer computation
 - **Built-in documentation** — Help tab with quick start guide, link tuning reference, troubleshooting
 - **Modern UI stack** — React 19, Radix UI, Sonner toasts, lucide icons, lazy loading with code splitting
 

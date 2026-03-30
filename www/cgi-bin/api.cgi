@@ -505,10 +505,9 @@ enumerate_wg_peers() {
         self_ip=$(echo "$api_json" | grep -oE '"100\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | tr -d '"')
 
         # Extract all unique 100.x.x.x IPs, excluding self
-        echo "$api_json" | grep -oE '100\.[0-9]+\.[0-9]+\.[0-9]+' | sort -u | while read -r peer_ip; do
-            [ "$peer_ip" = "$self_ip" ] && continue
-            echo "$peer_ip|0|0|0"
-        done
+        # Use grep | sed instead of while-read pipeline (avoids subshell stdout issues)
+        echo "$api_json" | grep -oE '100\.[0-9]+\.[0-9]+\.[0-9]+' | sort -u | \
+            grep -v "^${self_ip}$" | sed 's/$/|0|0|0/'
         return
     fi
 

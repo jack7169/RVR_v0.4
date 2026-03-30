@@ -38,7 +38,7 @@ KCPTUN_STATUS="stopped"
 pgrep -f kcptun-server >/dev/null 2>&1 && KCPTUN_STATUS="running"
 
 L2TAP_STATUS="stopped"
-pgrep -x l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
+pgrep l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
 
 IFACE_STATUS="down"
 IFACE_MTU="0"
@@ -134,7 +134,7 @@ if [ -n "$AIRCRAFT_IP" ]; then
         if [ -f "$SSH_KEY" ]; then
             REMOTE_STATUS=$(timeout 5 dbclient -i "$SSH_KEY" -y root@"$AIRCRAFT_IP" '
                 pgrep -f kcptun-client >/dev/null && echo -n "running " || echo -n "stopped "
-                pgrep -x l2tap >/dev/null && echo -n "running " || echo -n "stopped "
+                pgrep l2tap >/dev/null && echo -n "running " || echo -n "stopped "
                 ip link show l2bridge >/dev/null 2>&1 && echo "up" || echo "down"
             ' 2>/dev/null)
 

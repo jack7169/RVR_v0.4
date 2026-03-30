@@ -622,7 +622,7 @@ check_local_health() {
         pgrep -f kcptun-client > /dev/null 2>&1 || issues="${issues}kcptun_down,"
     fi
 
-    [ -f /etc/init.d/l2tap ] && ! pgrep -x l2tap > /dev/null 2>&1 && issues="${issues}l2tap_down,"
+    [ -f /etc/init.d/l2tap ] && ! pgrep l2tap > /dev/null 2>&1 && issues="${issues}l2tap_down,"
     [ -f /etc/init.d/l2tap ] && ! ip link show l2bridge > /dev/null 2>&1 && issues="${issues}interface_missing,"
 
     [ -n "$issues" ] && { echo "${issues%,}"; return 1; }
@@ -1308,7 +1308,7 @@ cmd_status() {
     echo ""
     echo "[Processes]"
     pgrep -f kcptun-server >/dev/null && echo "  kcptun-server: RUNNING" || echo "  kcptun-server: STOPPED"
-    pgrep -x l2tap >/dev/null && echo "  l2tap:         RUNNING" || echo "  l2tap:         STOPPED"
+    pgrep l2tap >/dev/null && echo "  l2tap:         RUNNING" || echo "  l2tap:         STOPPED"
     echo ""
     echo "[Interface]"
     if ip link show l2bridge >/dev/null 2>&1; then
@@ -1341,7 +1341,7 @@ cmd_remote() {
     ssh_aircraft "$AIRCRAFT_IP" '
         echo "=== Aircraft Status ==="
         pgrep -f kcptun-client >/dev/null && echo "kcptun-client: RUNNING" || echo "kcptun-client: STOPPED"
-        pgrep -x l2tap >/dev/null && echo "l2tap: RUNNING" || echo "l2tap: STOPPED"
+        pgrep l2tap >/dev/null && echo "l2tap: RUNNING" || echo "l2tap: STOPPED"
         ip link show l2bridge 2>/dev/null && echo "l2bridge: UP" || echo "l2bridge: DOWN"
         if [ -f /tmp/l2tap.stats ]; then
             . /tmp/l2tap.stats
@@ -1747,7 +1747,7 @@ cmd_update() {
     fi
 
     local AIRCRAFT_IP=$(get_aircraft_ip 2>/dev/null)
-    if [ -n "$AIRCRAFT_IP" ] && pgrep -x l2tap >/dev/null 2>&1; then
+    if [ -n "$AIRCRAFT_IP" ] && pgrep l2tap >/dev/null 2>&1; then
         log_info "Restarting bridge to apply updates..."
         cmd_restart "$AIRCRAFT_IP"
     fi

@@ -29,7 +29,7 @@ if [ "$ROLE" = "gcs" ]; then
 else
     pgrep -f kcptun-client >/dev/null 2>&1 && KCPTUN_STATUS="running"
 fi
-pgrep -x l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
+pgrep l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
 ip link show l2bridge >/dev/null 2>&1 && IFACE_STATUS="up"
 
 # l2tap stats

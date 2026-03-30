@@ -752,47 +752,59 @@ connect_aircraft_action() {
     json_response "{\"success\": $success, \"output\": \"$escaped_output\", \"exit_code\": $exit_code}"
 }
 
-# Helper: SSH to remote peer (used by speedtest/packet_storm)
+# Helper: SSH to remote peer
 _ssh_remote() {
     local ip="$1"; shift
     dbclient -i "$SSH_KEY" -y root@"$ip" "$@" 2>/dev/null
 }
 
-# Speed test using iperf3 — TCP and UDP throughput
+# Get remote peer's br-lan IP (for bridge-path testing)
+_get_bridge_ip() {
+    local vpn_ip="$1"
+    _ssh_remote "$vpn_ip" "ip -4 addr show br-lan 2>/dev/null | awk '/inet / {split(\$2,a,\"/\"); print a[1]; exit}'"
+}
+
+# Speed test using iperf3 — routes through L2 bridge (br-lan), not WAN
 run_speedtest() {
-    local ip="$1"
-    [ -z "$ip" ] && json_error "Aircraft IP required"
+    local vpn_ip="$1"
+    [ -z "$vpn_ip" ] && json_error "Aircraft IP required"
     command -v iperf3 >/dev/null 2>&1 || json_error "iperf3 not installed (opkg install iperf3)"
+    [ -f "$SSH_KEY" ] || json_error "SSH key not available"
 
     local results=""
 
-    # Latency baseline
-    results="=== Latency (5 pings) ===\n"
-    results="${results}$(ping -c 5 -W 2 "$ip" 2>&1 | tail -2)\n\n"
-
-    if [ -f "$SSH_KEY" ]; then
-        _ssh_remote "$ip" "killall iperf3 2>/dev/null; iperf3 -s -D -1"
-        sleep 1
-
-        # TCP throughput (10 seconds)
-        results="${results}=== TCP Throughput (10s) ===\n"
-        results="${results}$(iperf3 -c "$ip" -t 10 2>&1)\n\n"
-
-        # Restart server for UDP
-        _ssh_remote "$ip" "killall iperf3 2>/dev/null; iperf3 -s -D -1"
-        sleep 1
-
-        # UDP throughput (10 seconds, 50 Mbps target)
-        results="${results}=== UDP Throughput (10s, 50Mbps target) ===\n"
-        results="${results}$(iperf3 -c "$ip" -t 10 -u -b 50M 2>&1)\n\n"
-
-        _ssh_remote "$ip" "killall iperf3 2>/dev/null"
+    # Get aircraft's br-lan IP (this routes through the bridge)
+    local bridge_ip
+    bridge_ip=$(_get_bridge_ip "$vpn_ip")
+    if [ -z "$bridge_ip" ]; then
+        results="WARNING: Could not get aircraft br-lan IP. Bridge may not be forwarding.\n"
+        results="${results}Falling back to VPN IP (bypasses l2tap/kcptun).\n\n"
+        bridge_ip="$vpn_ip"
     else
-        results="${results}SSH key not available — run manually:\n"
-        results="${results}  Remote: iperf3 -s\n"
-        results="${results}  Local:  iperf3 -c $ip -t 10\n"
-        results="${results}          iperf3 -c $ip -t 10 -u -b 50M\n"
+        results="Testing through L2 bridge: $bridge_ip (not VPN direct)\n\n"
     fi
+
+    # Latency through bridge
+    results="${results}=== Latency (5 pings via bridge) ===\n"
+    results="${results}$(ping -c 5 -W 2 "$bridge_ip" 2>&1 | tail -2)\n\n"
+
+    # Start iperf3 server on aircraft (bind to br-lan)
+    _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null; iperf3 -s -B $bridge_ip -D -1"
+    sleep 1
+
+    # TCP throughput (10 seconds via bridge)
+    results="${results}=== TCP Throughput (10s via bridge) ===\n"
+    results="${results}$(iperf3 -c "$bridge_ip" -t 10 2>&1)\n\n"
+
+    # Restart server for UDP
+    _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null; iperf3 -s -B $bridge_ip -D -1"
+    sleep 1
+
+    # UDP throughput (10 seconds, 50 Mbps target via bridge)
+    results="${results}=== UDP Throughput (10s, 50Mbps via bridge) ===\n"
+    results="${results}$(iperf3 -c "$bridge_ip" -t 10 -u -b 50M 2>&1)\n\n"
+
+    _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null"
 
     if [ -f /tmp/l2tap.stats ]; then
         . /tmp/l2tap.stats
@@ -803,11 +815,16 @@ run_speedtest() {
     json_response "{\"success\": true, \"output\": \"$escaped\"}"
 }
 
-# Packet storm: sustained small-packet UDP to stress test the bridge
+# Packet storm: small-packet UDP flood through L2 bridge
 run_packet_storm() {
-    local ip="$1"
-    [ -z "$ip" ] && json_error "Aircraft IP required"
+    local vpn_ip="$1"
+    [ -z "$vpn_ip" ] && json_error "Aircraft IP required"
     command -v iperf3 >/dev/null 2>&1 || json_error "iperf3 not installed (opkg install iperf3)"
+    [ -f "$SSH_KEY" ] || json_error "SSH key not available"
+
+    local bridge_ip
+    bridge_ip=$(_get_bridge_ip "$vpn_ip")
+    [ -z "$bridge_ip" ] && bridge_ip="$vpn_ip"
 
     local pre_err=0 pre_drop=0
     [ -d /sys/class/net/l2bridge/statistics ] && {
@@ -815,19 +832,15 @@ run_packet_storm() {
         pre_drop=$(( $(cat /sys/class/net/l2bridge/statistics/rx_dropped) + $(cat /sys/class/net/l2bridge/statistics/tx_dropped) ))
     }
 
-    local results="=== Packet Storm ===\n"
+    local results="=== Packet Storm (via bridge: $bridge_ip) ===\n"
     results="${results}128-byte UDP packets at 10 Mbps for 10 seconds\n\n"
 
-    if [ -f "$SSH_KEY" ]; then
-        _ssh_remote "$ip" "killall iperf3 2>/dev/null; iperf3 -s -D -1"
-        sleep 1
+    _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null; iperf3 -s -B $bridge_ip -D -1"
+    sleep 1
 
-        results="${results}$(iperf3 -c "$ip" -t 10 -u -b 10M -l 128 2>&1)\n\n"
+    results="${results}$(iperf3 -c "$bridge_ip" -t 10 -u -b 10M -l 128 2>&1)\n\n"
 
-        _ssh_remote "$ip" "killall iperf3 2>/dev/null"
-    else
-        results="${results}SSH key not available\n"
-    fi
+    _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null"
 
     results="${results}=== Error Check ===\n"
     [ -d /sys/class/net/l2bridge/statistics ] && {
@@ -844,6 +857,126 @@ run_packet_storm() {
 
     local escaped=$(printf '%s' "$results" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
     json_response "{\"success\": true, \"output\": \"$escaped\"}"
+}
+
+# Outage detection from KCPtun SNMP log
+# Parses retransmit deltas, groups into outage events
+get_outages() {
+    local snmp_log="/tmp/kcptun-snmp.log"
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    if [ ! -f "$snmp_log" ] || [ ! -s "$snmp_log" ]; then
+        printf '{"outages":[],"summary":{"total_outages":0,"total_outage_seconds":0,"uptime_pct":100,"total_retrans":0,"total_lost":0},"current":{"in_outage":false,"retrans_rate":0}}\n'
+        exit 0
+    fi
+
+    # Parse SNMP CSV: detect retransmit bursts as outages
+    # CSV header: Unix,BytesSent,...,RetransSegs(17),FastRetransSegs(18),EarlyRetransSegs(19),LostSegs(20),...
+    awk -F',' '
+    BEGIN {
+        outage_count = 0
+        total_outage_sec = 0
+        total_retrans = 0
+        total_lost = 0
+        in_outage = 0
+        quiet_count = 0
+        first_ts = 0
+        last_ts = 0
+        printf "{\"outages\":["
+    }
+    /^[0-9]/ {
+        ts = $1
+        retrans = $17 + 0
+        fast_retrans = $18 + 0
+        early_retrans = $19 + 0
+        lost = $20 + 0
+
+        if (first_ts == 0) first_ts = ts
+        last_ts = ts
+
+        if (prev_ts > 0) {
+            d_retrans = (retrans - prev_retrans) + (fast_retrans - prev_fast) + (early_retrans - prev_early)
+            d_lost = lost - prev_lost
+
+            if (d_retrans > 0 || d_lost > 0) {
+                if (!in_outage) {
+                    in_outage = 1
+                    outage_start = prev_ts
+                    outage_retrans = 0
+                    outage_lost = 0
+                }
+                outage_retrans += d_retrans
+                outage_lost += d_lost
+                quiet_count = 0
+            } else if (in_outage) {
+                quiet_count++
+                if (quiet_count >= 2) {
+                    # Outage ended (10s quiet)
+                    duration = prev_ts - outage_start
+                    if (outage_count > 0) printf ","
+                    printf "{\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
+                        outage_start, prev_ts, duration, outage_retrans, outage_lost
+                    total_outage_sec += duration
+                    total_retrans += outage_retrans
+                    total_lost += outage_lost
+                    outage_count++
+                    in_outage = 0
+                }
+            }
+        }
+
+        prev_ts = ts
+        prev_retrans = retrans
+        prev_fast = fast_retrans
+        prev_early = early_retrans
+        prev_lost = lost
+        last_retrans_rate = (prev_ts > 0 && ts > prev_ts) ? ((retrans - prev_retrans) / (ts - prev_ts)) : 0
+    }
+    END {
+        # Close any open outage
+        if (in_outage) {
+            duration = last_ts - outage_start
+            if (outage_count > 0) printf ","
+            printf "{\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
+                outage_start, last_ts, duration, outage_retrans, outage_lost
+            total_outage_sec += duration
+            total_retrans += outage_retrans
+            total_lost += outage_lost
+            outage_count++
+        }
+
+        total_sec = (last_ts > first_ts) ? (last_ts - first_ts) : 1
+        uptime_pct = (total_sec > 0) ? ((total_sec - total_outage_sec) * 100.0 / total_sec) : 100
+        last_outage_ago = (in_outage) ? 0 : (last_ts - prev_ts)
+
+        printf "],\"summary\":{\"total_outages\":%d,\"total_outage_seconds\":%d,\"uptime_pct\":%.1f,\"total_retrans\":%d,\"total_lost\":%d,\"last_outage_ago\":%d},", \
+            outage_count, total_outage_sec, uptime_pct, total_retrans, total_lost, last_outage_ago
+        printf "\"current\":{\"in_outage\":%s,\"retrans_rate\":0}}\n", \
+            in_outage ? "true" : "false"
+    }
+    ' "$snmp_log"
+    exit 0
+}
+
+# Return latest KCPtun SNMP sample as JSON
+get_kcp_stats() {
+    local snmp_log="/tmp/kcptun-snmp.log"
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    if [ ! -f "$snmp_log" ]; then
+        printf '{}\n'
+        exit 0
+    fi
+
+    tail -1 "$snmp_log" | awk -F',' '/^[0-9]/ {
+        printf "{\"timestamp\":%s,\"bytes_sent\":%s,\"bytes_received\":%s,\"connections\":%s,\"in_pkts\":%s,\"out_pkts\":%s,\"in_segs\":%s,\"out_segs\":%s,\"in_bytes\":%s,\"out_bytes\":%s,\"retrans\":%s,\"fast_retrans\":%s,\"early_retrans\":%s,\"lost\":%s}\n", \
+            $1, $2, $3, $7, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+    }'
+    exit 0
 }
 
 # Return server-side stats history as JSON array with computed rates
@@ -1205,6 +1338,12 @@ main() {
         packet_storm)
             local ip=$(parse_json "aircraft_ip" "$post_data")
             run_packet_storm "$ip"
+            ;;
+        outages)
+            get_outages
+            ;;
+        kcp_stats)
+            get_kcp_stats
             ;;
         setup_log)
             get_setup_log

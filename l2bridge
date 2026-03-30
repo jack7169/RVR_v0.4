@@ -813,8 +813,12 @@ LOG="/tmp/l2bridge-watchdog.log"
 echo $$ > "$LOCK"
 trap "rm -f $LOCK" EXIT
 
-# Hard cap: truncate if over 512KB to prevent RAM exhaustion (/tmp is tmpfs)
+# Hard cap: truncate logs if over 512KB to prevent RAM exhaustion (/tmp is tmpfs)
 [ -f "$LOG" ] && [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 524288 ] && tail -50 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+
+# Rotate kcptun SNMP log (cap at 512KB ~12h of 5s samples)
+SNMP_LOG="/tmp/kcptun-snmp.log"
+[ -f "$SNMP_LOG" ] && [ "$(wc -c < "$SNMP_LOG" 2>/dev/null || echo 0)" -gt 524288 ] && tail -2000 "$SNMP_LOG" > "$SNMP_LOG.tmp" && mv "$SNMP_LOG.tmp" "$SNMP_LOG"
 
 /usr/bin/l2bridge monitor >> "$LOG" 2>&1
 
@@ -1001,7 +1005,9 @@ EOF
     "sockbuf": $KCP_SOCKBUF,
     "smuxbuf": $KCP_SMUXBUF,
     "smuxver": $KCP_SMUXVER,
-    "streambuf": $KCP_STREAM_BUF
+    "streambuf": $KCP_STREAM_BUF,
+    "snmplog": "/tmp/kcptun-snmp.log",
+    "snmpperiod": 5
 }
 EOF
 
@@ -1143,7 +1149,9 @@ chmod +x /etc/l2bridge/l2tap-down"
     \"smuxbuf\": $KCP_SMUXBUF,
     \"smuxver\": $KCP_SMUXVER,
     \"streambuf\": $KCP_STREAM_BUF,
-    \"autoexpire\": 0
+    \"autoexpire\": 0,
+    \"snmplog\": \"/tmp/kcptun-snmp.log\",
+    \"snmpperiod\": 5
 }
 EOF"
 

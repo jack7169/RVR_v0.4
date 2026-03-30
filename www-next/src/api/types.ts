@@ -173,6 +173,47 @@ export interface LinkSettings {
   bridge_mtu: number;
 }
 
+export interface OutageEvent {
+  start: number;
+  end: number;
+  duration_seconds: number;
+  retrans_count: number;
+  lost_count: number;
+}
+
+export interface OutageResponse {
+  outages: OutageEvent[];
+  summary: {
+    total_outages: number;
+    total_outage_seconds: number;
+    uptime_pct: number;
+    total_retrans: number;
+    total_lost: number;
+    last_outage_ago: number;
+  };
+  current: {
+    in_outage: boolean;
+    retrans_rate: number;
+  };
+}
+
+export interface KcpStats {
+  timestamp: number;
+  bytes_sent: number;
+  bytes_received: number;
+  connections: number;
+  in_pkts: number;
+  out_pkts: number;
+  in_segs: number;
+  out_segs: number;
+  in_bytes: number;
+  out_bytes: number;
+  retrans: number;
+  fast_retrans: number;
+  early_retrans: number;
+  lost: number;
+}
+
 export interface BindingDetail {
   profile_id: string;
   name: string;

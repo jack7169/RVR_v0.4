@@ -13,6 +13,7 @@ const NetworkStats = lazy(() => import('./components/NetworkStats').then(m => ({
 const LogViewer = lazy(() => import('./components/LogViewer').then(m => ({ default: m.LogViewer })));
 const BindingManager = lazy(() => import('./components/BindingManager').then(m => ({ default: m.BindingManager })));
 const HelpPage = lazy(() => import('./components/HelpPage').then(m => ({ default: m.HelpPage })));
+const OutagePanel = lazy(() => import('./components/OutagePanel').then(m => ({ default: m.OutagePanel })));
 
 function Skeleton({ height = 'h-48' }: { height?: string }) {
   return (
@@ -51,6 +52,10 @@ export default function App() {
 
             <Suspense fallback={<Skeleton height="h-80" />}>
               <NetworkStats status={status} />
+            </Suspense>
+
+            <Suspense fallback={<Skeleton height="h-48" />}>
+              <OutagePanel />
             </Suspense>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

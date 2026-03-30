@@ -98,6 +98,18 @@ export async function updateLinkSettings(
   return postApi({ action: 'update_link_settings', settings, restart });
 }
 
+export async function fetchOutages(): Promise<import('./types').OutageResponse> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=outages`);
+  if (!res.ok) throw new Error(`Outages fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchKcpStats(): Promise<import('./types').KcpStats> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=kcp_stats`);
+  if (!res.ok) throw new Error(`KCP stats fetch failed: ${res.status}`);
+  return res.json();
+}
+
 export interface StatsHistoryResponse {
   points: Array<{ t: number; rx: number; tx: number; pkts: number }>;
 }

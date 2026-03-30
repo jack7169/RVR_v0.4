@@ -752,6 +752,100 @@ connect_aircraft_action() {
     json_response "{\"success\": $success, \"output\": \"$escaped_output\", \"exit_code\": $exit_code}"
 }
 
+# Speed test using iperf3 — TCP and UDP throughput
+# Starts iperf3 server on remote peer via SSH, runs client locally
+run_speedtest() {
+    local ip="$1"
+    [ -z "$ip" ] && json_error "Aircraft IP required"
+    command -v iperf3 >/dev/null 2>&1 || json_error "iperf3 not installed (opkg install iperf3)"
+
+    local results=""
+
+    # Latency baseline
+    results="=== Latency (5 pings) ===\n"
+    results="${results}$(ping -c 5 -i 0.2 -W 2 "$ip" 2>&1 | tail -2)\n\n"
+
+    if [ -f "$SSH_KEY" ]; then
+        # Start iperf3 server on remote (-D = daemon, -1 = one-shot)
+        ssh_aircraft "$ip" "killall iperf3 2>/dev/null; iperf3 -s -D -1" 2>/dev/null
+        sleep 1
+
+        # TCP throughput (10 seconds)
+        results="${results}=== TCP Throughput (10s) ===\n"
+        results="${results}$(iperf3 -c "$ip" -t 10 2>&1)\n\n"
+
+        # Restart server for UDP
+        ssh_aircraft "$ip" "killall iperf3 2>/dev/null; iperf3 -s -D -1" 2>/dev/null
+        sleep 1
+
+        # UDP throughput (10 seconds, 50 Mbps target)
+        results="${results}=== UDP Throughput (10s, 50Mbps target) ===\n"
+        results="${results}$(iperf3 -c "$ip" -t 10 -u -b 50M 2>&1)\n\n"
+
+        ssh_aircraft "$ip" "killall iperf3 2>/dev/null" 2>/dev/null
+    else
+        results="${results}SSH key not available — run manually:\n"
+        results="${results}  Remote: iperf3 -s\n"
+        results="${results}  Local:  iperf3 -c $ip -t 10\n"
+        results="${results}          iperf3 -c $ip -t 10 -u -b 50M\n"
+    fi
+
+    # L2TAP stats
+    if [ -f /tmp/l2tap.stats ]; then
+        . /tmp/l2tap.stats
+        results="${results}=== L2TAP ===\nStreams: ${STREAMS:-0}/${MAX_STREAMS:-128}, Flows: ${FLOWS:-0}\n"
+    fi
+
+    local escaped=$(printf '%s' "$results" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
+    json_response "{\"success\": true, \"output\": \"$escaped\"}"
+}
+
+# Packet storm: sustained small-packet UDP to stress test the bridge
+# Simulates dense telemetry traffic (MAVLink, sensor data)
+run_packet_storm() {
+    local ip="$1"
+    [ -z "$ip" ] && json_error "Aircraft IP required"
+    command -v iperf3 >/dev/null 2>&1 || json_error "iperf3 not installed (opkg install iperf3)"
+
+    # Pre-test error snapshot
+    local pre_err=0 pre_drop=0
+    [ -d /sys/class/net/l2bridge/statistics ] && {
+        pre_err=$(( $(cat /sys/class/net/l2bridge/statistics/rx_errors) + $(cat /sys/class/net/l2bridge/statistics/tx_errors) ))
+        pre_drop=$(( $(cat /sys/class/net/l2bridge/statistics/rx_dropped) + $(cat /sys/class/net/l2bridge/statistics/tx_dropped) ))
+    }
+
+    local results="=== Packet Storm ===\n"
+    results="${results}128-byte UDP packets at 10 Mbps for 10 seconds\n\n"
+
+    if [ -f "$SSH_KEY" ]; then
+        ssh_aircraft "$ip" "killall iperf3 2>/dev/null; iperf3 -s -D -1" 2>/dev/null
+        sleep 1
+
+        results="${results}$(iperf3 -c "$ip" -t 10 -u -b 10M -l 128 2>&1)\n\n"
+
+        ssh_aircraft "$ip" "killall iperf3 2>/dev/null" 2>/dev/null
+    else
+        results="${results}SSH key not available\n"
+    fi
+
+    # Post-test error delta
+    results="${results}=== Error Check ===\n"
+    [ -d /sys/class/net/l2bridge/statistics ] && {
+        local post_err=$(( $(cat /sys/class/net/l2bridge/statistics/rx_errors) + $(cat /sys/class/net/l2bridge/statistics/tx_errors) ))
+        local post_drop=$(( $(cat /sys/class/net/l2bridge/statistics/rx_dropped) + $(cat /sys/class/net/l2bridge/statistics/tx_dropped) ))
+        results="${results}New errors: $((post_err - pre_err))\n"
+        results="${results}New drops: $((post_drop - pre_drop))\n"
+    }
+
+    if [ -f /tmp/l2tap.stats ]; then
+        . /tmp/l2tap.stats
+        results="${results}L2TAP: ${STREAMS:-0} streams, ${FLOWS:-0} flows\n"
+    fi
+
+    local escaped=$(printf '%s' "$results" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
+    json_response "{\"success\": true, \"output\": \"$escaped\"}"
+}
+
 # Return server-side stats history as JSON array with computed rates
 # Query params: window=300 (seconds, default 900 = 15min)
 get_stats_history() {
@@ -1103,6 +1197,14 @@ main() {
         remove_peer)
             local ip=$(parse_json "ip" "$post_data")
             remove_manual_peer "$ip"
+            ;;
+        speedtest)
+            local ip=$(parse_json "aircraft_ip" "$post_data")
+            run_speedtest "$ip"
+            ;;
+        packet_storm)
+            local ip=$(parse_json "aircraft_ip" "$post_data")
+            run_packet_storm "$ip"
             ;;
         setup_log)
             get_setup_log

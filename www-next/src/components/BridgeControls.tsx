@@ -40,11 +40,7 @@ export function BridgeControls({ status, onRefresh }: Props) {
     }
     setLoading('speedtest');
     try {
-      // Use iperf3-style throughput test via l2bridge interface
-      // Falls back to large ping flood if iperf not available
-      const res = await executeCommand('debug', status.aircraft.tailscale_ip);
       const ip = status.aircraft.tailscale_ip;
-      // Run a timed data transfer test
       const testRes = await fetch('/cgi-bin/api.cgi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

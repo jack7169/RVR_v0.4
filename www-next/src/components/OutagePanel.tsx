@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Clock, Shield, Zap, Ban } from 'lucide-react';
+import { AlertTriangle, Clock, Shield, Zap } from 'lucide-react';
 import { fetchOutages } from '../api/client';
-import type { OutageResponse, OutageEvent, StatusResponse } from '../api/types';
+import type { OutageResponse, OutageEvent } from '../api/types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
 
@@ -52,7 +52,7 @@ function OutageTimeline({ outages, windowSeconds }: { outages: OutageEvent[]; wi
 
 type TimeWindow = 3600 | 21600 | 86400;
 
-export function OutagePanel({ status }: { status?: StatusResponse | null }) {
+export function OutagePanel() {
   const [data, setData] = useState<OutageResponse | null>(null);
   const [window, setWindow] = useState<TimeWindow>(3600);
 

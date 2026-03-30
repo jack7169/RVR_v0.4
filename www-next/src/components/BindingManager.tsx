@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import type { DiscoveredPeer, PeerDiscovery, AircraftProfiles, LinkSettings } from '../api/types';
 import {
   discoverPeers, listAircraft, bindAircraft, unbindAircraft,
-  connectAircraft, setActiveAircraft,
+  connectAircraft, setActiveAircraft, addPeerIp,
   getLinkSettings, updateLinkSettings,
 } from '../api/client';
 import { Card } from './ui/Card';
@@ -330,6 +330,7 @@ export function BindingManager({ onRefresh }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
   const [bindPeer, setBindPeer] = useState<DiscoveredPeer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [manualIp, setManualIp] = useState('');
   const { toast } = useToast();
 
   const loadData = useCallback(async () => {
@@ -406,21 +407,41 @@ export function BindingManager({ onRefresh }: Props) {
       <Card title="Network Discovery" badge={
         <span className="text-xs text-text-secondary">{discovery?.peers.length ?? 0} peers</span>
       }>
-        <div className="flex gap-2 mb-3">
-          {(['all', 'online', 'unbound'] as const).map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={cn(
-                'text-xs px-3 py-1 rounded-full transition-colors',
-                filter === f
-                  ? 'bg-accent/20 text-accent border border-accent/30'
-                  : 'bg-border/20 text-text-secondary hover:text-text-primary',
-              )}
-            >
-              {f === 'all' ? 'All' : f === 'online' ? 'Online' : 'Unbound'}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div className="flex gap-2">
+            {(['all', 'online', 'unbound'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  'text-xs px-3 py-1 rounded-full transition-colors',
+                  filter === f
+                    ? 'bg-accent/20 text-accent border border-accent/30'
+                    : 'bg-border/20 text-text-secondary hover:text-text-primary',
+                )}
+              >
+                {f === 'all' ? 'All' : f === 'online' ? 'Online' : 'Unbound'}
+              </button>
+            ))}
+          </div>
+          <form className="flex gap-1" onSubmit={async (e) => {
+            e.preventDefault();
+            if (!manualIp) return;
+            try {
+              await addPeerIp(manualIp);
+              toast('Peer added, refreshing...', 'success');
+              setManualIp('');
+              loadData();
+            } catch { toast('Failed to add peer', 'error'); }
+          }}>
+            <input
+              value={manualIp}
+              onChange={e => setManualIp(e.target.value)}
+              placeholder="100.x.x.x"
+              className="w-32 bg-bg-input border border-border rounded-lg px-2 py-1 text-xs font-mono text-text-primary"
+            />
+            <Button size="sm" variant="ghost" type="submit">Add Peer</Button>
+          </form>
         </div>
 
         {/* Self node */}

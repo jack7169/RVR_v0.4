@@ -77,6 +77,14 @@ export async function connectAircraft(id: string): Promise<CommandResponse> {
   return postApi({ action: 'connect_aircraft', id });
 }
 
+export async function addPeerIp(ip: string): Promise<CommandResponse> {
+  return postApi({ action: 'add_peer', ip });
+}
+
+export async function removePeerIp(ip: string): Promise<CommandResponse> {
+  return postApi({ action: 'remove_peer', ip });
+}
+
 export async function getLinkSettings(): Promise<LinkSettings> {
   const res = await fetch(`${API_BASE}/api.cgi?action=get_link_settings`);
   if (!res.ok) throw new Error(`Get link settings failed: ${res.status}`);

@@ -480,6 +480,17 @@ enumerate_wg_peers() {
         return
     fi
 
+    # Fallback: Tailscale/Headscale local API (both expose same interface)
+    # This is not VPN-provider-specific — both Tailscale and Headscale clients
+    # serve the same localapi at this socket path.
+    local ts_socket="/var/run/tailscale/tailscaled.sock"
+    if [ -S "$ts_socket" ]; then
+        # curl to Unix socket — extract peer IPs from status JSON
+        curl -s --unix-socket "$ts_socket" http://local/localapi/v0/status 2>/dev/null | \
+            awk -F'"' '/"TailscaleIPs"/{getline; if(/100\./) {gsub(/[" \[\],]/,"",$0); print $0"|0|0|0"}}' 2>/dev/null
+        return
+    fi
+
     # Last resort: check routing table for 100.x.x.x/32 routes
     ip route show | awk '/^100\.[0-9.]+ dev/ { print $1"|0|0|0" }'
 }
@@ -517,9 +528,25 @@ discover_peers() {
     [ -f /etc/init.d/kcptun-client ] && self_role="aircraft"
     local self_gitver=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
 
-    # Enumerate WG peers and probe them
+    # Enumerate peers from multiple sources: WG interface + aircraft.json + manual IPs
     local tmp_peers="/tmp/l2bridge-discovery.$$"
-    enumerate_wg_peers > "$tmp_peers"
+    : > "$tmp_peers"
+
+    # Source 1: WireGuard peers (kernel WG only)
+    enumerate_wg_peers >> "$tmp_peers"
+
+    # Source 2: Known IPs from aircraft.json profiles
+    if [ -f "$AIRCRAFT_FILE" ]; then
+        awk '/"tailscale_ip":/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print $0"|0|0|0" }' "$AIRCRAFT_FILE" >> "$tmp_peers"
+    fi
+
+    # Source 3: Manual peer IPs file (one IP per line, user can add via UI)
+    [ -f /etc/l2bridge/peers.conf ] && while read -r manual_ip; do
+        [ -n "$manual_ip" ] && echo "$manual_ip|0|0|0"
+    done < /etc/l2bridge/peers.conf >> "$tmp_peers"
+
+    # Deduplicate by IP
+    sort -t'|' -k1,1 -u "$tmp_peers" -o "$tmp_peers"
 
     # Probe peers in parallel (background jobs, max 10)
     local tmp_results="/tmp/l2bridge-discovery-results.$$"
@@ -772,6 +799,30 @@ update_link_settings_action() {
     json_response "{\"success\": true, \"message\": \"Link settings updated\"}"
 }
 
+# Add a manual peer IP for discovery probing
+add_manual_peer() {
+    local ip="$1"
+    [ -z "$ip" ] && json_error "IP address required"
+    validate_ip "$ip" || json_error "Invalid IP format (must be 100.x.x.x)"
+
+    local peers_file="/etc/l2bridge/peers.conf"
+    mkdir -p /etc/l2bridge
+    # Add if not already present
+    if ! grep -qx "$ip" "$peers_file" 2>/dev/null; then
+        echo "$ip" >> "$peers_file"
+    fi
+    json_response "{\"success\": true, \"message\": \"Peer IP added\"}"
+}
+
+# Remove a manual peer IP
+remove_manual_peer() {
+    local ip="$1"
+    [ -z "$ip" ] && json_error "IP address required"
+    local peers_file="/etc/l2bridge/peers.conf"
+    [ -f "$peers_file" ] && sed -i "/^${ip}$/d" "$peers_file"
+    json_response "{\"success\": true, \"message\": \"Peer IP removed\"}"
+}
+
 SSH_KEY="/root/.ssh/id_dropbear"
 
 # Main request handling
@@ -938,6 +989,14 @@ main() {
         connect_aircraft)
             local id=$(parse_json "id" "$post_data")
             connect_aircraft_action "$id"
+            ;;
+        add_peer)
+            local ip=$(parse_json "ip" "$post_data")
+            add_manual_peer "$ip"
+            ;;
+        remove_peer)
+            local ip=$(parse_json "ip" "$post_data")
+            remove_manual_peer "$ip"
             ;;
         get_link_settings)
             get_link_settings_action

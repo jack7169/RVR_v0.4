@@ -55,9 +55,8 @@ export function NetworkStats({ status }: Props) {
   const { l2bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
-  // Fetch server-side history for windows > 15min (beyond client buffer)
+  // Always fetch server history — provides data from before page load
   useEffect(() => {
-    if (timeWindow <= 900) { setServerHistory([]); return; }
     let cancelled = false;
     fetchStatsHistory(timeWindow).then(res => {
       if (cancelled) return;
@@ -72,10 +71,14 @@ export function NetworkStats({ status }: Props) {
     return () => { cancelled = true; };
   }, [timeWindow]);
 
-  // Compute chart data synchronously — no waiting for re-render or effects
+  // Use server history when client buffer is sparse, merge for recent windows
   const data = useMemo(() => {
-    if (timeWindow > 900 && serverHistory.length > 0) return serverHistory;
-    return getWindow(timeWindow);
+    const clientData = getWindow(timeWindow);
+    // For short windows, prefer client data if we have enough (live updates)
+    // Otherwise use server history which has data from before page load
+    if (clientData.length >= 3) return clientData;
+    if (serverHistory.length > 0) return serverHistory;
+    return clientData;
   }, [timeWindow, serverHistory, getWindow, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

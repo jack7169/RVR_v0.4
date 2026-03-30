@@ -18,7 +18,7 @@
 #define GC_INTERVAL      10    /* seconds between flow garbage collection */
 #define CONNECT_RETRY_MS 1000  /* ms between reconnect attempts (client) */
 #define READ_BUF_SIZE    (FRAME_HDR_LEN + MAX_FRAME_LEN + 64)
-#define WRITE_BUF_SIZE   (FRAME_HDR_LEN + MAX_FRAME_LEN) * 4
+#define WRITE_BUF_SIZE   (FRAME_HDR_LEN + MAX_FRAME_LEN) * 256  /* ~390KB, absorbs bursts during TCP backpressure */
 
 /* Frame flags */
 #define FLAG_NONE        0x0000

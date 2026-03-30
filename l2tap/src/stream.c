@@ -259,6 +259,13 @@ int stream_flush(struct l2tap_ctx *ctx, int idx)
             .data.fd = s->fd,
         };
         epoll_ctl(ctx->epoll_fd, EPOLL_CTL_MOD, s->fd, &ev);
+
+        /* Resume TAP reads if paused by backpressure */
+        struct epoll_event tap_ev = {
+            .events = EPOLLIN,
+            .data.fd = ctx->tap_fd,
+        };
+        epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, ctx->tap_fd, &tap_ev);
     }
 
     return 0;

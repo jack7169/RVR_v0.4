@@ -25,6 +25,7 @@ export interface StatusResponse {
       tap_tx_bytes: number;
       soft_drops: number;
       hard_drops: number;
+      seq_drops: number;
     };
     watchdog: 'active' | 'inactive';
     health: {

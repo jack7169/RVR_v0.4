@@ -79,6 +79,7 @@ if [ -f /tmp/l2tap.stats ]; then
     L2TAP_TAP_TX_BYTES="${TAP_TX_BYTES:-0}"
     L2TAP_SOFT_DROPS="${SOFT_DROPS:-0}"
     L2TAP_HARD_DROPS="${HARD_DROPS:-0}"
+    L2TAP_SEQ_DROPS="${SEQ_DROPS:-0}"
 fi
 
 # Check watchdog status
@@ -425,7 +426,8 @@ cat << EOF
       "tap_tx_frames": $L2TAP_TAP_TX_FRAMES,
       "tap_tx_bytes": $L2TAP_TAP_TX_BYTES,
       "soft_drops": ${L2TAP_SOFT_DROPS:-0},
-      "hard_drops": ${L2TAP_HARD_DROPS:-0}
+      "hard_drops": ${L2TAP_HARD_DROPS:-0},
+      "seq_drops": ${L2TAP_SEQ_DROPS:-0}
     },
     "watchdog": "$WATCHDOG_STATUS",
     "health": {

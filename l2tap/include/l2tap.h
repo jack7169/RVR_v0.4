@@ -20,8 +20,8 @@
 #define READ_BUF_SIZE    (FRAME_HDR_LEN + MAX_FRAME_LEN + 64)
 #define WRITE_BUF_SIZE   (FRAME_HDR_LEN + MAX_FRAME_LEN) * 4
 
-/* Frame flags */
-#define FLAG_NONE        0x0000
+/* Frame header: [2B length BE][2B sequence number BE]
+ * Sequence wraps at 65535. Used for gap detection on receiver. */
 
 /* Stream states */
 #define STREAM_FREE       0
@@ -55,6 +55,11 @@ struct stream {
     uint8_t   wbuf[WRITE_BUF_SIZE];
     size_t    wlen;
     struct timespec wbuf_oldest;  /* timestamp of oldest data in wbuf */
+
+    /* Sequence numbers for drop detection */
+    uint16_t  tx_seq;            /* next sequence number to send */
+    uint16_t  rx_seq;            /* next expected sequence number */
+    int       rx_seq_init;       /* 0 until first frame received */
 
     /* Stats */
     uint64_t  bytes_rx;
@@ -106,6 +111,7 @@ struct l2tap_ctx {
     uint64_t             tap_tx_frames;
     uint64_t             soft_drops;
     uint64_t             hard_drops;
+    uint64_t             seq_drops;      /* frames lost (sequence gap detection) */
 
     /* Timers */
     time_t               last_gc;

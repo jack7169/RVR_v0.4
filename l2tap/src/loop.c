@@ -186,10 +186,10 @@ static void handle_stream_read(struct l2tap_ctx *ctx, struct stream *s)
 
     /* Extract complete frames and write to TAP */
     uint8_t frame[MAX_FRAME_LEN];
-    uint16_t flen, fflags;
+    uint16_t flen, fseq;
 
     while (1) {
-        int ret = frame_read(s, frame, &flen, &fflags);
+        int ret = frame_read(s, frame, &flen, &fseq);
         if (ret == 0)
             break;  /* incomplete */
         if (ret < 0) {
@@ -197,6 +197,23 @@ static void handle_stream_read(struct l2tap_ctx *ctx, struct stream *s)
             stream_close(ctx, s->slot);
             return;
         }
+
+        /* Sequence gap detection */
+        if (s->rx_seq_init) {
+            uint16_t expected = s->rx_seq;
+            if (fseq != expected) {
+                /* Gap detected — frames were lost in transit */
+                uint16_t gap = (fseq >= expected) ? (fseq - expected) : (65536 - expected + fseq);
+                if (gap < 32768) { /* forward gap, not wrap-around confusion */
+                    ctx->seq_drops += gap;
+                    LOG_INFO("stream[%d] seq gap: expected %u got %u (%u frames lost)",
+                             s->slot, expected, fseq, gap);
+                }
+            }
+        } else {
+            s->rx_seq_init = 1;
+        }
+        s->rx_seq = fseq + 1;
 
         /* Write raw Ethernet frame to TAP */
         ssize_t w = write(ctx->tap_fd, frame, flen);

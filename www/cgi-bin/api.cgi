@@ -880,12 +880,17 @@ get_outages() {
     # Recovery event = any retransmit activity (RetransSegs delta > 0)
     # Loss event = l2tap hard drops (read from stats file, not SNMP)
 
-    # Get l2tap hard drops
-    local hard_drops=0
-    [ -f /tmp/l2tap.stats ] && hard_drops=$(grep "^HARD_DROPS=" /tmp/l2tap.stats 2>/dev/null | cut -d= -f2)
+    # Get l2tap drop counters
+    local hard_drops=0 seq_drops=0
+    if [ -f /tmp/l2tap.stats ]; then
+        hard_drops=$(grep "^HARD_DROPS=" /tmp/l2tap.stats 2>/dev/null | cut -d= -f2)
+        seq_drops=$(grep "^SEQ_DROPS=" /tmp/l2tap.stats 2>/dev/null | cut -d= -f2)
+    fi
     hard_drops="${hard_drops:-0}"
+    seq_drops="${seq_drops:-0}"
+    local total_lost=$((hard_drops + seq_drops))
 
-    awk -F',' -v hard_drops="$hard_drops" '
+    awk -F',' -v total_lost="$total_lost" '
     BEGIN {
         recovery_count = 0
         total_recovery_sec = 0
@@ -931,12 +936,16 @@ get_outages() {
             total_recovery_sec += duration; recovery_count++
         }
         total_sec = (last_ts > first_ts) ? (last_ts - first_ts) : 1
-        # Uptime only degraded by actual loss (hard drops), not recoveries
-        loss_events = (hard_drops+0 > 0) ? 1 : 0
-        uptime_pct = (hard_drops+0 > 0) ? 99.0 : 100.0
+        # Uptime degraded by actual loss (hard drops + sequence gaps)
+        loss_events = (total_lost+0 > 0) ? 1 : 0
+        uptime_pct = 100.0
+        if (total_lost+0 > 0 && total_sec > 0) {
+            # Rough estimate: loss events proportional to recovery time
+            uptime_pct = ((total_sec - total_recovery_sec) * 100.0 / total_sec)
+        }
 
         printf "],\"summary\":{\"total_outages\":%d,\"total_recoveries\":%d,\"total_outage_seconds\":0,\"total_recovery_seconds\":%d,\"uptime_pct\":%.1f,\"total_retrans\":%d,\"total_lost\":%d},", \
-            loss_events, recovery_count, total_recovery_sec, uptime_pct, total_retrans, hard_drops+0
+            loss_events, recovery_count, total_recovery_sec, uptime_pct, total_retrans, total_lost+0
         printf "\"current\":{\"in_outage\":false,\"in_recovery\":%s,\"retrans_rate\":0}}\n", \
             in_recovery ? "true" : "false"
     }

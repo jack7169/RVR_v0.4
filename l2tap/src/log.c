@@ -92,6 +92,7 @@ void stats_write_file(struct l2tap_ctx *ctx)
     fprintf(f, "BCAST_STREAM=%s\n", bcast_up ? "up" : "down");
     fprintf(f, "SOFT_DROPS=%lu\n", (unsigned long)ctx->soft_drops);
     fprintf(f, "HARD_DROPS=%lu\n", (unsigned long)ctx->hard_drops);
+    fprintf(f, "SEQ_DROPS=%lu\n", (unsigned long)ctx->seq_drops);
 
     for (int i = 0; i < MAX_STREAMS; i++) {
         struct stream *s = &ctx->streams[i];

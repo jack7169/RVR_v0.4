@@ -13,14 +13,16 @@
 
 int frame_write(struct stream *s, const uint8_t *eth, uint16_t len, uint16_t flags)
 {
+    (void)flags; /* flags field repurposed as sequence number */
     if (s->state != STREAM_ACTIVE)
         return -1;
 
+    uint16_t seq = s->tx_seq++;
     uint8_t hdr[FRAME_HDR_LEN];
     hdr[0] = (len >> 8) & 0xFF;
     hdr[1] = len & 0xFF;
-    hdr[2] = (flags >> 8) & 0xFF;
-    hdr[3] = flags & 0xFF;
+    hdr[2] = (seq >> 8) & 0xFF;
+    hdr[3] = seq & 0xFF;
 
     size_t total = FRAME_HDR_LEN + len;
 

@@ -1,51 +1,41 @@
-import { useState, useCallback, createContext, useContext } from 'react';
-import { cn } from '../../lib/utils';
+import { useCallback } from 'react';
+import { toast as sonnerToast, Toaster } from 'sonner';
 
-interface ToastItem {
-  id: number;
-  message: string;
-  type: 'success' | 'error' | 'info';
-}
+type ToastType = 'success' | 'error' | 'info';
 
 interface ToastContextType {
-  toast: (message: string, type?: ToastItem['type']) => void;
+  toast: (message: string, type?: ToastType) => void;
 }
 
-const ToastContext = createContext<ToastContextType>({ toast: () => {} });
-
-export function useToast() {
-  return useContext(ToastContext);
-}
-
-let nextId = 0;
-
-export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const toast = useCallback((message: string, type: ToastItem['type'] = 'info') => {
-    const id = nextId++;
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+export function useToast(): ToastContextType {
+  const toast = useCallback((message: string, type: ToastType = 'info') => {
+    switch (type) {
+      case 'success':
+        sonnerToast.success(message);
+        break;
+      case 'error':
+        sonnerToast.error(message);
+        break;
+      case 'info':
+        sonnerToast.info(message);
+        break;
+    }
   }, []);
 
+  return { toast };
+}
+
+export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <>
       {children}
-      <div className="fixed top-4 right-4 z-300 flex flex-col gap-2">
-        {toasts.map(t => (
-          <div
-            key={t.id}
-            className={cn(
-              'px-4 py-3 rounded-lg text-sm text-white animate-[slide-in_0.3s_ease] max-w-sm',
-              t.type === 'success' && 'bg-success/90',
-              t.type === 'error' && 'bg-error/90',
-              t.type === 'info' && 'bg-accent/90',
-            )}
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
+      <Toaster
+        theme="dark"
+        position="top-right"
+        richColors
+        closeButton
+        duration={4000}
+      />
+    </>
   );
 }

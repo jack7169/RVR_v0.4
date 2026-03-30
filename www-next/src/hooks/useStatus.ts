@@ -1,31 +1,20 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchStatus } from '../api/client';
-import type { StatusResponse } from '../api/types';
-
-const POLL_INTERVAL = 5000;
 
 export function useStatus() {
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const queryClient = useQueryClient();
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await fetchStatus();
-      setStatus(data);
-      setError(null);
-      setLastUpdate(new Date());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch status');
-    }
-  }, []);
+  const { data: status, error: queryError, dataUpdatedAt } = useQuery({
+    queryKey: ['status'],
+    queryFn: fetchStatus,
+    refetchInterval: 5000,
+    retry: 1,
+  });
 
-  useEffect(() => {
-    refresh();
-    intervalRef.current = setInterval(refresh, POLL_INTERVAL);
-    return () => clearInterval(intervalRef.current);
-  }, [refresh]);
-
-  return { status, error, lastUpdate, refresh };
+  return {
+    status: status ?? null,
+    error: queryError ? String(queryError) : null,
+    lastUpdate: dataUpdatedAt ? new Date(dataUpdatedAt) : null,
+    refresh: () => { queryClient.invalidateQueries({ queryKey: ['status'] }); },
+  };
 }

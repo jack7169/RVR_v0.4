@@ -18,7 +18,7 @@ export function Card({ title, badge, children }: CardProps) {
   );
 }
 
-export function StatusRow({ label, children }: { label: string; children: React.ReactNode }) {
+export function StatusRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between text-sm">
       <span className="text-text-secondary">{label}</span>

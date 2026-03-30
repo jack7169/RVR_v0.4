@@ -37,7 +37,9 @@ jobs:
           ls -la l2tap-aarch64
 
       - name: Copy to packages
-        run: cp l2tap/l2tap-aarch64 packages/common/l2tap-aarch64
+        run: |
+          mkdir -p packages/common
+          cp l2tap/l2tap-aarch64 packages/common/l2tap-aarch64
 
       - name: Commit binary
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -173,7 +173,7 @@ function PeerCard({
               <Button size="sm" variant="ghost" onClick={onReconnect}>Reconnect</Button>
             </div>
           ) : (
-            <Button size="sm" variant="primary" onClick={onBind} disabled={!peer.online}>
+            <Button size="sm" variant="primary" onClick={onBind} disabled={peer.connection_mode === 'offline'}>
               Bind
             </Button>
           )}
@@ -387,7 +387,7 @@ export function BindingManager({ onRefresh }: Props) {
   };
 
   const filteredPeers = discovery?.peers.filter(p => {
-    if (filter === 'online') return p.online;
+    if (filter === 'online') return p.connection_mode === 'online';
     if (filter === 'unbound') return !p.is_bound;
     return true;
   }) ?? [];
@@ -473,14 +473,14 @@ export function BindingManager({ onRefresh }: Props) {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm truncate">{profile.name}</span>
                       {isActive && <Badge variant="success">Active</Badge>}
-                      {peer?.online !== undefined && (
-                        <span className={cn('w-2 h-2 rounded-full', peer.online ? 'bg-success' : 'bg-error/50')} />
+                      {peer && (
+                        <span className={cn('w-2 h-2 rounded-full', peer.connection_mode === 'online' ? 'bg-success' : 'bg-error/50')} />
                       )}
                     </div>
                     <div className="text-xs text-text-secondary font-mono">{profile.tailscale_ip}</div>
                     {peer && peer.connection_mode !== 'offline' && (
                       <div className="text-xs text-text-secondary">
-                        {peer.connection_mode}{peer.relay_name && ` (${peer.relay_name})`}
+                        {peer.connection_mode}
                       </div>
                     )}
                   </div>

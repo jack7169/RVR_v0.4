@@ -52,7 +52,7 @@ export function NetworkStats({ status }: Props) {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
   const [allHistory, setAllHistory] = useState<DataPoint[]>([]);
   const fetchedRef = useRef(false);
-  const { getWindow, current } = useNetHistory(status);
+  const { getWindow, current, count: liveCount } = useNetHistory(status);
   const { l2bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
@@ -71,14 +71,19 @@ export function NetworkStats({ status }: Props) {
     }).catch(() => {});
   }, []);
 
-  // Compute chart data directly in render — no useMemo to go stale
+  // Merge server history + live client data, deduplicated by timestamp
+  // Server history covers before page load, client data covers after
+  // Using liveCount in scope ensures re-render when new client data arrives
+  void liveCount;
   const clientData = getWindow(timeWindow);
   let data: DataPoint[];
-  if (clientData.length >= 3) {
-    data = clientData;
-  } else if (allHistory.length > 0) {
-    const cutoff = allHistory[allHistory.length - 1].t - timeWindow * 1000;
-    data = allHistory.filter(p => p.t >= cutoff);
+  if (allHistory.length > 0) {
+    const cutoff = Date.now() - timeWindow * 1000;
+    const serverSlice = allHistory.filter(p => p.t >= cutoff);
+    // Append client data that's newer than the last server point
+    const serverEnd = serverSlice.length > 0 ? serverSlice[serverSlice.length - 1].t : 0;
+    const newClientData = clientData.filter(p => p.t > serverEnd);
+    data = [...serverSlice, ...newClientData];
   } else {
     data = clientData;
   }

@@ -488,8 +488,11 @@ enumerate_wg_peers() {
         [ -S "$sock" ] && { vpn_socket="$sock"; break; }
     done
     if [ -n "$vpn_socket" ] && command -v curl >/dev/null 2>&1; then
-        curl -s --max-time 2 --unix-socket "$vpn_socket" http://local/localapi/v0/status 2>/dev/null | \
-            awk -F'"' '/"TailscaleIPs"/{getline; if(/100\./) {gsub(/[" \[\],]/,"",$0); print $0"|0|0|0"}}' 2>/dev/null
+        # Query the VPN daemon's local API for peer list
+        # URL host is arbitrary for Unix sockets; API path is /localapi/v0/status
+        curl -s --max-time 3 --unix-socket "$vpn_socket" "http://localhost/localapi/v0/status" 2>/dev/null | \
+            awk '/"Peer":/,0' | \
+            awk '/"TailscaleIPs"/{found=1; next} found && /100\./{gsub(/[" \t,\[\]]/,"",$0); if($0 ~ /^100\./) print $0"|0|0|0"; found=0}' 2>/dev/null
         return
     fi
 

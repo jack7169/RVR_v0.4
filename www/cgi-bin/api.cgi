@@ -518,7 +518,7 @@ enumerate_wg_peers() {
 # Probe a peer's discovery endpoint, return JSON or empty
 probe_peer() {
     local ip="$1"
-    wget -q -T 2 -O- "http://${ip}:8081/cgi-bin/discovery.cgi" 2>/dev/null || echo ""
+    wget -q -T 1 -O- "http://${ip}:8081/cgi-bin/discovery.cgi" 2>/dev/null || echo ""
 }
 
 # Discover all peers via WireGuard enumeration + HTTP probes
@@ -576,6 +576,11 @@ discover_peers() {
     while IFS='|' read -r ip handshake rx tx; do
         [ -z "$ip" ] && continue
         (
+            # Quick reachability check before slow HTTP probe
+            if ! ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
+                echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown"
+                exit 0
+            fi
             probe_json=$(probe_peer "$ip")
             if [ -n "$probe_json" ]; then
                 # Extract fields from probe response

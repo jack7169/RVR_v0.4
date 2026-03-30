@@ -751,6 +751,50 @@ connect_aircraft_action() {
     json_response "{\"success\": $success, \"output\": \"$escaped_output\", \"exit_code\": $exit_code}"
 }
 
+# Return server-side stats history as JSON array with computed rates
+# Query params: window=300 (seconds, default 900 = 15min)
+get_stats_history() {
+    local stats_file="/tmp/l2bridge-stats.csv"
+    local window=$(echo "$QUERY_STRING" | sed -n 's/.*window=\([0-9]*\).*/\1/p')
+    window="${window:-900}"
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    if [ ! -f "$stats_file" ] || [ ! -s "$stats_file" ]; then
+        printf '{"points":[]}\n'
+        exit 0
+    fi
+
+    # Read file, compute rates from deltas, filter by time window
+    local now_ms
+    now_ms=$(date +%s%3N 2>/dev/null || echo $(($(date +%s) * 1000)))
+    local cutoff_ms=$((now_ms - window * 1000))
+
+    awk -F'|' -v cutoff="$cutoff_ms" '
+    BEGIN { printf "{\"points\":["; first=1 }
+    {
+        t=$1; rx=$2; tx=$3; pkts=$4+$5; errs=$6+$7; drops=$8
+        if (t+0 < cutoff+0) { prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts; next }
+        if (prev_t && t > prev_t) {
+            dt = (t - prev_t) / 1000
+            rx_rate = (rx - prev_rx) / dt
+            tx_rate = (tx - prev_tx) / dt
+            pkt_rate = (pkts - prev_pkts) / dt
+            if (rx_rate < 0) rx_rate = 0
+            if (tx_rate < 0) tx_rate = 0
+            if (pkt_rate < 0) pkt_rate = 0
+            if (!first) printf ","
+            printf "{\"t\":%s,\"rx\":%.0f,\"tx\":%.0f,\"pkts\":%.0f}", t, rx_rate, tx_rate, pkt_rate
+            first = 0
+        }
+        prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts
+    }
+    END { printf "]}\n" }
+    ' "$stats_file"
+    exit 0
+}
+
 # Get current link settings from kcptun server config
 get_link_settings_action() {
     local config="/etc/kcptun/server.json"
@@ -1058,6 +1102,9 @@ main() {
             ;;
         setup_log)
             get_setup_log
+            ;;
+        stats_history)
+            get_stats_history
             ;;
         get_link_settings)
             get_link_settings_action

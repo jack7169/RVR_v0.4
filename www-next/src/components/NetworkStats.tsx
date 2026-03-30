@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 import { ArrowDown, ArrowUp, Activity, AlertTriangle } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
-import { useNetHistory } from '../hooks/useNetHistory';
+import { fetchStatsHistory } from '../api/client';
+import { useNetHistory, type DataPoint } from '../hooks/useNetHistory';
 import { formatBytes, formatRate, formatPackets } from '../lib/utils';
 import { cn } from '../lib/utils';
 
@@ -13,13 +14,15 @@ interface Props {
   status: StatusResponse;
 }
 
-type TimeWindow = 15 | 60 | 300 | 900;
+type TimeWindow = 15 | 60 | 300 | 900 | 3600 | 21600;
 
 const WINDOWS: { label: string; seconds: TimeWindow }[] = [
   { label: '15s', seconds: 15 },
   { label: '1m', seconds: 60 },
   { label: '5m', seconds: 300 },
   { label: '15m', seconds: 900 },
+  { label: '1h', seconds: 3600 },
+  { label: '6h', seconds: 21600 },
 ];
 
 function StatTile({ icon, label, value, sub, color }: {
@@ -47,11 +50,38 @@ function formatChartRate(value: number): string {
 
 export function NetworkStats({ status }: Props) {
   const [window, setWindow] = useState<TimeWindow>(60);
+  const [serverHistory, setServerHistory] = useState<DataPoint[]>([]);
+  const [serverWindow, setServerWindow] = useState<number>(0);
   const { getWindow, current } = useNetHistory(status);
   const { l2bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
-  const data = getWindow(window);
+  // Fetch server-side history for windows > 15min (beyond client buffer)
+  const loadServerHistory = useCallback(async (seconds: number) => {
+    if (seconds <= 900) { setServerHistory([]); setServerWindow(0); return; }
+    try {
+      const res = await fetchStatsHistory(seconds);
+      const points: DataPoint[] = res.points.map(p => {
+        const d = new Date(p.t);
+        return {
+          time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+          t: p.t,
+          rx: p.rx,
+          tx: p.tx,
+          pkts: p.pkts,
+        };
+      });
+      setServerHistory(points);
+      setServerWindow(seconds);
+    } catch {
+      setServerHistory([]);
+    }
+  }, []);
+
+  useEffect(() => { loadServerHistory(window); }, [window, loadServerHistory]);
+
+  // Use server history for long windows, client history for short ones
+  const data = window > 900 && serverHistory.length > 0 ? serverHistory : getWindow(window);
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

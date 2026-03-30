@@ -98,6 +98,16 @@ export async function updateLinkSettings(
   return postApi({ action: 'update_link_settings', settings, restart });
 }
 
+export interface StatsHistoryResponse {
+  points: Array<{ t: number; rx: number; tx: number; pkts: number }>;
+}
+
+export async function fetchStatsHistory(windowSeconds = 900): Promise<StatsHistoryResponse> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=stats_history&window=${windowSeconds}`);
+  if (!res.ok) throw new Error(`Stats history failed: ${res.status}`);
+  return res.json();
+}
+
 // ── Capture & Files ───────────────────────────────────────────────────
 
 export async function startCapture(duration = 60): Promise<CommandResponse> {

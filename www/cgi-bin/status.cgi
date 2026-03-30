@@ -241,6 +241,15 @@ fi
 # Get current timestamp in milliseconds for rate calculation
 STATS_TIMESTAMP=$(date +%s%3N 2>/dev/null || echo $(($(date +%s) * 1000)))
 
+# Append to rolling stats history file (for server-side chart data)
+# Format: timestamp_ms|rx_bytes|tx_bytes|rx_packets|tx_packets|rx_errors|tx_errors|dropped_pkts
+STATS_HISTORY="/tmp/l2bridge-stats.csv"
+echo "$STATS_TIMESTAMP|$L2B_RX_BYTES|$L2B_TX_BYTES|$L2B_RX_PACKETS|$L2B_TX_PACKETS|$L2B_RX_ERRORS|$L2B_TX_ERRORS|$((L2B_RX_DROPPED + L2B_TX_DROPPED))" >> "$STATS_HISTORY" 2>/dev/null
+# Cap at 4320 lines (~6 hours at 5s polling)
+if [ -f "$STATS_HISTORY" ] && [ "$(wc -l < "$STATS_HISTORY" 2>/dev/null || echo 0)" -gt 4320 ]; then
+    tail -4320 "$STATS_HISTORY" > "${STATS_HISTORY}.tmp" && mv "${STATS_HISTORY}.tmp" "$STATS_HISTORY"
+fi
+
 # Bridge filter stats (nftables counters)
 FILTER_ACTIVE="false"
 FILTER_DROPPED_PKTS=0

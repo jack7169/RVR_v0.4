@@ -71,22 +71,16 @@ export function NetworkStats({ status }: Props) {
     }).catch(() => {});
   }, []);
 
-  // Merge server history + live client data, deduplicated by timestamp
-  // Server history covers before page load, client data covers after
-  // Using liveCount in scope ensures re-render when new client data arrives
+  // Always merge server history + client data
+  // liveCount triggers re-render when new client data arrives
   void liveCount;
   const clientData = getWindow(timeWindow);
-  let data: DataPoint[];
-  if (allHistory.length > 0) {
-    const cutoff = Date.now() - timeWindow * 1000;
-    const serverSlice = allHistory.filter(p => p.t >= cutoff);
-    // Append client data that's newer than the last server point
-    const serverEnd = serverSlice.length > 0 ? serverSlice[serverSlice.length - 1].t : 0;
-    const newClientData = clientData.filter(p => p.t > serverEnd);
-    data = [...serverSlice, ...newClientData];
-  } else {
-    data = clientData;
-  }
+  const cutoff = Date.now() - timeWindow * 1000;
+  const serverSlice = allHistory.filter(p => p.t >= cutoff);
+  // Append client data newer than the latest server point
+  const serverEnd = serverSlice.length > 0 ? serverSlice[serverSlice.length - 1].t : 0;
+  const newClientData = clientData.filter(p => p.t > serverEnd);
+  const data = [...serverSlice, ...newClientData];
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

@@ -656,7 +656,7 @@ discover_peers() {
     exit 0
 }
 
-# Bind aircraft: save profile + run l2bridge setup in background
+# Bind aircraft: save profile, install SSH keys, run full setup in background
 bind_aircraft_action() {
     local ip="$1"
     local name="$2"
@@ -665,22 +665,36 @@ bind_aircraft_action() {
     [ -z "$ip" ] && json_error "Tailscale IP is required"
     [ -z "$name" ] && json_error "Aircraft name is required"
     [ -z "$password" ] && json_error "SSH password is required"
-    validate_ip "$ip" || json_error "Invalid Tailscale IP format (must be 100.x.x.x)"
+    validate_ip "$ip" || json_error "Invalid IP format (must be 100.x.x.x)"
+
+    # Verify aircraft is reachable before starting
+    if ! ping -c 1 -W 2 "$ip" >/dev/null 2>&1; then
+        json_error "Aircraft $ip is not reachable"
+    fi
 
     # Generate profile ID from name
     local id=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
 
-    # Save profile with password immediately
+    # Save profile with password to aircraft.json
+    # l2bridge setup reads this to get the password for non-interactive SSH
     init_aircraft_file
     add_aircraft "$id" "$name" "$ip" "$password" > /dev/null 2>&1
 
-    # Run l2bridge setup in background (no nohup on BusyBox)
-    acquire_lock
-    "$L2BRIDGE" setup "$ip" "$name" > /tmp/l2bridge-setup.log 2>&1 &
-    release_lock
+    # Set as active aircraft + save state file (l2bridge setup reads these)
+    sed -i "s/\"active\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"active\": \"$id\"/" "$AIRCRAFT_FILE"
+    echo "AIRCRAFT_IP=\"$ip\"" > /etc/l2bridge.conf
 
-    json_response "{\"success\": true, \"message\": \"Setup started in background\", \"id\": \"$id\", \"log_file\": \"/tmp/l2bridge-setup.log\"}"
+    # Run full l2bridge setup in background
+    # This does everything: SSH key install, package install on aircraft,
+    # config generation, init scripts, nftables, start services, STP wait
+    : > /tmp/l2bridge-setup.log
+    (
+        "$L2BRIDGE" setup "$ip" "$name" >> /tmp/l2bridge-setup.log 2>&1
+        echo "[BIND COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
+    ) &
+
+    json_response "{\"success\": true, \"message\": \"Full setup started — installing packages, configuring bridge, starting services. This takes ~2 minutes.\", \"id\": \"$id\", \"log_file\": \"/tmp/l2bridge-setup.log\"}"
 }
 
 # Unbind aircraft: stop + remove
@@ -844,6 +858,21 @@ remove_manual_peer() {
     local peers_file="/etc/l2bridge/peers.conf"
     [ -f "$peers_file" ] && sed -i "/^${ip}$/d" "$peers_file"
     json_response "{\"success\": true, \"message\": \"Peer IP removed\"}"
+}
+
+# Return current setup log contents (for polling during bind)
+get_setup_log() {
+    echo "Content-Type: application/json"
+    echo ""
+    local log_file="/tmp/l2bridge-setup.log"
+    if [ -f "$log_file" ]; then
+        local log_content
+        log_content=$(tail -100 "$log_file" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
+        printf '{"log":"%s"}\n' "$log_content"
+    else
+        printf '{"log":""}\n'
+    fi
+    exit 0
 }
 
 SSH_KEY="/root/.ssh/id_dropbear"
@@ -1020,6 +1049,9 @@ main() {
         remove_peer)
             local ip=$(parse_json "ip" "$post_data")
             remove_manual_peer "$ip"
+            ;;
+        setup_log)
+            get_setup_log
             ;;
         get_link_settings)
             get_link_settings_action

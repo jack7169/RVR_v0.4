@@ -41,20 +41,39 @@ function BindModal({
       return;
     }
     setLoading(true);
-    setOutput('Starting setup...\n');
+    setOutput('Starting full setup (packages, config, services)...\n');
     try {
       const res = await bindAircraft(peer.ip, name, password);
       if (res.success) {
-        setOutput(prev => prev + (res.output || 'Setup started in background.') + '\n');
-        toast('Aircraft binding initiated', 'success');
-        onSuccess();
+        setOutput(prev => prev + (res.output || res.message || 'Setup running...') + '\n');
+        toast('Setup started — this takes ~2 minutes', 'info');
+        // Poll setup log for progress
+        const pollLog = setInterval(async () => {
+          try {
+            const logRes = await fetch('/cgi-bin/api.cgi?action=setup_log');
+            if (logRes.ok) {
+              const data = await logRes.json();
+              if (data.log) setOutput(data.log);
+              if (data.log?.includes('[BIND COMPLETE]')) {
+                clearInterval(pollLog);
+                setLoading(false);
+                if (data.log.includes('exit_code=0')) {
+                  toast('Aircraft bound successfully!', 'success');
+                } else {
+                  toast('Setup finished with errors — check log', 'error');
+                }
+                onSuccess();
+              }
+            }
+          } catch { /* ignore poll errors */ }
+        }, 3000);
       } else {
         setOutput(prev => prev + 'ERROR: ' + (res.error || 'Setup failed') + '\n');
         toast(res.error || 'Bind failed', 'error');
+        setLoading(false);
       }
     } catch {
-      toast('Failed to bind aircraft', 'error');
-    } finally {
+      toast('Failed to start binding', 'error');
       setLoading(false);
     }
   };
@@ -65,7 +84,7 @@ function BindModal({
     <Modal open={open} onClose={onClose} title={`Bind ${peer.hostname}`} wide>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm text-text-secondary mb-1">Tailscale IP</label>
+          <label className="block text-sm text-text-secondary mb-1">VPN IP</label>
           <input
             value={peer.ip}
             disabled

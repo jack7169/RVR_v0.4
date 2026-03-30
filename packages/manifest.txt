@@ -1,0 +1,30 @@
+# RVR v4.0 Offline Package Bundle
+# Architecture: aarch64_cortex-a53
+#
+# common/ - shared dependencies (GCS + Aircraft)
+#   l2tap-aarch64 (static binary, ~50KB, not .ipk)
+#   kcptun-config_*.ipk
+#   kmod-tun_*.ipk (kernel-version specific!)
+#   libopenssl3_*.ipk
+#   liblzo2_*.ipk
+#   zlib_*.ipk
+#   git_*.ipk
+#   git-http_*.ipk
+#   libcurl4_*.ipk
+#   ca-bundle_*.ipk
+#
+# gcs/ - GCS-only packages
+#   kcptun-server_*.ipk
+#   sshpass_*.ipk
+#
+# aircraft/ - Aircraft-only packages
+#   kcptun-client_*.ipk
+#
+# NOTE: tinc is NOT included — replaced by l2tap static binary
+#
+# WARNING: kmod-tun is kernel-version specific. If the target router
+# runs a different kernel, kmod-tun may fail to load. Check: uname -r
+#
+# To refresh packages, run on the router:
+#   l2bridge update  (pulls latest from git)
+#   -- or from installer menu: option 5 (Refresh packages)

@@ -1,0 +1,61 @@
+name: Build l2tap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'l2tap/**'
+      - '.github/workflows/build-l2tap.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'l2tap/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl cross toolchain
+        run: |
+          curl -fsSL https://musl.cc/aarch64-linux-musl-cross.tgz | tar xz -C /opt
+          echo "/opt/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+
+      - name: Build for aarch64
+        working-directory: l2tap
+        run: make cross
+
+      - name: Verify binary
+        working-directory: l2tap
+        run: |
+          file l2tap-aarch64
+          ls -la l2tap-aarch64
+
+      - name: Copy to packages
+        run: cp l2tap/l2tap-aarch64 packages/common/l2tap-aarch64
+
+      - name: Commit binary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/common/l2tap-aarch64 -f
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Build l2tap-aarch64 binary
+
+          [skip ci]"
+            git push
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2tap-aarch64
+          path: l2tap/l2tap-aarch64

@@ -1,0 +1,191 @@
+export interface StatusResponse {
+  timestamp: string;
+  gcs: {
+    tailscale_ip: string;
+    tailscale_status: 'connected' | 'disconnected';
+    services: {
+      kcptun_server: 'running' | 'stopped';
+      l2tap: 'running' | 'stopped';
+      l2bridge_interface: 'up' | 'down';
+    };
+    interface: {
+      name: string;
+      mtu: number;
+      state: 'up' | 'down';
+    };
+    l2tap_streams: {
+      active: number;
+      max: number;
+      flows: number;
+      broadcast_stream: 'up' | 'down';
+      tap_rx_frames: number;
+      tap_rx_bytes: number;
+      tap_tx_frames: number;
+      tap_tx_bytes: number;
+    };
+    watchdog: 'active' | 'inactive';
+    health: {
+      status: 'OK' | 'ERROR' | 'RECOVERING' | 'unknown';
+      last_check: string;
+      details: string;
+    };
+  };
+  aircraft: {
+    id: string;
+    profile_name: string;
+    tailscale_ip: string;
+    reachable: boolean;
+    tailscale_peer: {
+      mode: 'direct' | 'relay' | 'idle' | 'unknown';
+      relay: string;
+      rx_bytes: number;
+      tx_bytes: number;
+    };
+    services: {
+      kcptun_client: 'running' | 'stopped' | 'unknown';
+      l2tap: 'running' | 'stopped' | 'unknown';
+      l2bridge_interface: 'up' | 'down' | 'unknown';
+    };
+  };
+  connection: {
+    established: boolean;
+    duration_seconds: number;
+  };
+  network_stats: {
+    timestamp_ms: number;
+    l2bridge: {
+      rx_bytes: number;
+      tx_bytes: number;
+      rx_packets: number;
+      tx_packets: number;
+      rx_errors: number;
+      tx_errors: number;
+      rx_dropped: number;
+      tx_dropped: number;
+      multicast: number;
+    };
+    tailscale: {
+      interface: string;
+      rx_bytes: number;
+      tx_bytes: number;
+      rx_packets: number;
+      tx_packets: number;
+    };
+  };
+  internet: {
+    status: 'connected' | 'disconnected';
+  };
+  bridge_filter: {
+    active: boolean;
+    dropped_packets: number;
+    dropped_bytes: number;
+  };
+  capture: {
+    active: boolean;
+    elapsed: number;
+    file_size: number;
+  };
+  version: {
+    current: string;
+    latest: string;
+    update_available: boolean;
+  };
+}
+
+export interface AircraftProfile {
+  name: string;
+  tailscale_ip: string;
+  ssh_password?: string;
+  created: string;
+  last_used: string;
+}
+
+export interface AircraftProfiles {
+  version: number;
+  active: string;
+  profiles: Record<string, AircraftProfile>;
+}
+
+export interface CommandResponse {
+  success: boolean;
+  command?: string;
+  output?: string;
+  exit_code?: number;
+  duration_seconds?: number;
+  error?: string;
+  log_file?: string;
+}
+
+export interface FileInfo {
+  name: string;
+  path: string;
+  size: number;
+  modified: string;
+  type: 'capture' | 'log';
+}
+
+export interface FileListResponse {
+  files: FileInfo[];
+}
+
+export interface LogEntry {
+  timestamp: string;
+  level: 'error' | 'warn' | 'info' | 'debug';
+  source: 'setup' | 'watchdog' | 'system';
+  message: string;
+}
+
+// ── Binding Management Types ──────────────────────────────────────────
+
+export interface TailscalePeer {
+  hostname: string;
+  dns_name: string;
+  tailscale_ip: string;
+  os: string;
+  online: boolean;
+  active: boolean;
+  connection_mode: 'direct' | 'relay' | 'idle' | 'offline';
+  relay_name?: string;
+  rx_bytes: number;
+  tx_bytes: number;
+  last_handshake?: string;
+  last_seen?: string;
+  is_self: boolean;
+  is_bound: boolean;
+  bound_profile_id?: string;
+  bound_profile_name?: string;
+}
+
+export interface TailscaleDiscovery {
+  self: TailscalePeer;
+  peers: TailscalePeer[];
+}
+
+export interface LinkSettings {
+  kcp_nodelay: number;
+  kcp_interval: number;
+  kcp_resend: number;
+  kcp_nc: number;
+  kcp_segment_mtu: number;
+  kcp_sndwnd: number;
+  kcp_rcvwnd: number;
+  kcp_sockbuf: number;
+  kcp_smuxbuf: number;
+  kcp_streambuf: number;
+  bridge_mtu: number;
+}
+
+export interface BindingDetail {
+  profile_id: string;
+  name: string;
+  tailscale_ip: string;
+  created: string;
+  last_used: string;
+  status: 'connected' | 'disconnected' | 'unreachable';
+  connection_mode?: 'direct' | 'relay';
+  relay_name?: string;
+  l2tap_streams?: number;
+  l2tap_flows?: number;
+  tailscale_rx_bytes?: number;
+  tailscale_tx_bytes?: number;
+}

@@ -1,0 +1,17 @@
+.DS_Store
+*.swp
+*.swo
+
+# l2tap build artifacts
+l2tap/build/
+l2tap/src/*.o
+l2tap/l2tap
+l2tap/l2tap-aarch64
+
+# Web UI
+www-next/node_modules/
+www-next/dist/
+
+# Runtime
+*.log
+*.pid

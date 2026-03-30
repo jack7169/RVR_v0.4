@@ -1,0 +1,55 @@
+name: Build Web UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'www-next/**'
+      - '.github/workflows/build-ui.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'www-next/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: www-next/package-lock.json
+
+      - name: Install dependencies
+        working-directory: www-next
+        run: npm ci
+
+      - name: Type check
+        working-directory: www-next
+        run: npx tsc -b
+
+      - name: Build
+        working-directory: www-next
+        run: npm run build
+
+      - name: Commit built files
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add www/index.html www/assets/ -f
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Build web UI from www-next/ sources
+
+          [skip ci]"
+            git push
+          fi

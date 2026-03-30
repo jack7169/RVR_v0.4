@@ -1,0 +1,505 @@
+import { useEffect, useState, useCallback } from 'react';
+import type { TailscalePeer, TailscaleDiscovery, AircraftProfiles, LinkSettings } from '../api/types';
+import {
+  discoverPeers, listAircraft, bindAircraft, unbindAircraft,
+  connectAircraft, setActiveAircraft, deleteAircraft,
+  getLinkSettings, updateLinkSettings,
+} from '../api/client';
+import { Card, StatusRow } from './ui/Card';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import { Modal } from './ui/Modal';
+import { useToast } from './ui/Toast';
+import { cn, formatBytes } from '../lib/utils';
+
+interface Props {
+  onRefresh: () => void;
+}
+
+type Filter = 'all' | 'online' | 'unbound';
+
+// ── Bind Modal ────────────────────────────────────────────────────────
+
+function BindModal({
+  peer, open, onClose, onSuccess,
+}: {
+  peer: TailscalePeer | null; open: boolean; onClose: () => void; onSuccess: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [output, setOutput] = useState('');
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (peer) setName(peer.hostname);
+  }, [peer]);
+
+  const handleBind = async () => {
+    if (!peer || !name || !password) {
+      toast('Name and SSH password are required', 'error');
+      return;
+    }
+    setLoading(true);
+    setOutput('Starting setup...\n');
+    try {
+      const res = await bindAircraft(peer.tailscale_ip, name, password);
+      if (res.success) {
+        setOutput(prev => prev + (res.output || 'Setup started in background.') + '\n');
+        toast('Aircraft binding initiated', 'success');
+        onSuccess();
+      } else {
+        setOutput(prev => prev + 'ERROR: ' + (res.error || 'Setup failed') + '\n');
+        toast(res.error || 'Bind failed', 'error');
+      }
+    } catch {
+      toast('Failed to bind aircraft', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!peer) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Bind ${peer.hostname}`} wide>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm text-text-secondary mb-1">Tailscale IP</label>
+          <input
+            value={peer.tailscale_ip}
+            disabled
+            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm font-mono text-text-secondary"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-text-secondary mb-1">Aircraft Name</label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Aircraft Alpha"
+            className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-text-secondary mb-1">SSH Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Root password for initial SSH key setup"
+            className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
+          />
+          <p className="text-xs text-text-secondary mt-1">Required for first-time setup. Stored for future reconnects.</p>
+        </div>
+
+        {output && (
+          <pre className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-48 overflow-y-auto whitespace-pre-wrap">
+            {output}
+          </pre>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleBind} loading={loading}>
+            Bind Aircraft
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Peer Card ─────────────────────────────────────────────────────────
+
+function PeerCard({
+  peer, onBind, onReconnect,
+}: {
+  peer: TailscalePeer; onBind: () => void; onReconnect: () => void;
+}) {
+  const modeColor = peer.connection_mode === 'direct' ? 'text-success'
+    : peer.connection_mode === 'relay' ? 'text-warning'
+    : 'text-text-secondary';
+
+  return (
+    <div className={cn(
+      'bg-bg-card border rounded-xl p-4 flex flex-col gap-2',
+      peer.is_self ? 'border-accent/30' : 'border-border',
+    )}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            'w-2.5 h-2.5 rounded-full',
+            peer.online ? 'bg-success' : 'bg-error/50',
+          )} />
+          <span className="font-medium text-sm">{peer.hostname}</span>
+          {peer.is_self && <Badge variant="info">This Device</Badge>}
+        </div>
+        {peer.os && <span className="text-xs text-text-secondary">{peer.os}</span>}
+      </div>
+
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-mono text-text-secondary">{peer.tailscale_ip}</span>
+        <span className={modeColor}>
+          {peer.connection_mode}
+          {peer.relay_name && ` (${peer.relay_name})`}
+        </span>
+      </div>
+
+      {(peer.rx_bytes > 0 || peer.tx_bytes > 0) && (
+        <div className="text-xs text-text-secondary">
+          RX: {formatBytes(peer.rx_bytes)} / TX: {formatBytes(peer.tx_bytes)}
+        </div>
+      )}
+
+      {!peer.is_self && (
+        <div className="mt-1">
+          {peer.is_bound ? (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-success flex items-center gap-1">
+                Bound: {peer.bound_profile_name}
+              </span>
+              <Button size="sm" variant="ghost" onClick={onReconnect}>Reconnect</Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="primary" onClick={onBind} disabled={!peer.online}>
+              Bind
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Link Settings Panel ───────────────────────────────────────────────
+
+const PRESETS: Record<string, Partial<LinkSettings>> = {
+  'Starlink Optimized': {
+    kcp_nodelay: 1, kcp_interval: 20, kcp_resend: 4, kcp_nc: 1,
+    kcp_segment_mtu: 1200, kcp_sndwnd: 1024, kcp_rcvwnd: 1024,
+    kcp_sockbuf: 8388608, kcp_smuxbuf: 8388608, kcp_streambuf: 2097152, bridge_mtu: 1500,
+  },
+  'Low Latency': {
+    kcp_nodelay: 1, kcp_interval: 10, kcp_resend: 2, kcp_nc: 1,
+    kcp_segment_mtu: 1200, kcp_sndwnd: 512, kcp_rcvwnd: 512,
+    kcp_sockbuf: 4194304, kcp_smuxbuf: 4194304, kcp_streambuf: 1048576, bridge_mtu: 1500,
+  },
+  'High Throughput': {
+    kcp_nodelay: 1, kcp_interval: 30, kcp_resend: 4, kcp_nc: 1,
+    kcp_segment_mtu: 1200, kcp_sndwnd: 2048, kcp_rcvwnd: 2048,
+    kcp_sockbuf: 16777216, kcp_smuxbuf: 16777216, kcp_streambuf: 4194304, bridge_mtu: 1500,
+  },
+};
+
+const FIELD_LABELS: Record<keyof LinkSettings, { label: string; tooltip: string }> = {
+  kcp_nodelay: { label: 'No Delay', tooltip: '1=no ACK delay (recommended)' },
+  kcp_interval: { label: 'Interval (ms)', tooltip: 'Internal update interval. Lower=more responsive, higher CPU' },
+  kcp_resend: { label: 'Resend Threshold', tooltip: 'Retransmit after N missed ACKs. 4=good for Starlink drops' },
+  kcp_nc: { label: 'No Congestion', tooltip: '1=disable congestion control (recommended for dedicated links)' },
+  kcp_segment_mtu: { label: 'Segment MTU', tooltip: 'KCP segment size. 1200 fits Tailscale 1280 limit' },
+  kcp_sndwnd: { label: 'Send Window', tooltip: 'Send window size in packets' },
+  kcp_rcvwnd: { label: 'Recv Window', tooltip: 'Receive window size in packets' },
+  kcp_sockbuf: { label: 'Socket Buffer', tooltip: 'Kernel socket buffer size (bytes)' },
+  kcp_smuxbuf: { label: 'Smux Buffer', tooltip: 'Smux overall buffer size (bytes)' },
+  kcp_streambuf: { label: 'Stream Buffer', tooltip: 'Per-stream buffer size (bytes)' },
+  bridge_mtu: { label: 'Bridge MTU', tooltip: 'L2 bridge interface MTU. 1500=standard Ethernet' },
+};
+
+function LinkSettingsPanel() {
+  const [settings, setSettings] = useState<LinkSettings | null>(null);
+  const [edited, setEdited] = useState<Partial<LinkSettings>>({});
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const load = async () => {
+    try {
+      const data = await getLinkSettings();
+      setSettings(data);
+      setEdited({});
+    } catch {
+      // Settings may not exist yet
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const current = settings ? { ...settings, ...edited } : null;
+  const hasChanges = Object.keys(edited).length > 0;
+
+  const handleChange = (field: keyof LinkSettings, value: string) => {
+    const num = parseInt(value, 10);
+    if (!isNaN(num)) {
+      setEdited(prev => ({ ...prev, [field]: num }));
+    }
+  };
+
+  const handlePreset = (name: string) => {
+    const preset = PRESETS[name];
+    if (preset) setEdited(preset);
+  };
+
+  const handleSave = async () => {
+    if (!hasChanges) return;
+    setSaving(true);
+    try {
+      const res = await updateLinkSettings(edited, true);
+      if (res.success) {
+        toast('Link settings updated', 'success');
+        load();
+      } else {
+        toast(res.error || 'Save failed', 'error');
+      }
+    } catch {
+      toast('Failed to save settings', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!current) {
+    return (
+      <Card title="Link Settings">
+        <p className="text-sm text-text-secondary py-4">Loading settings...</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Link Settings" badge={hasChanges ? <Badge variant="warning">Unsaved</Badge> : undefined}>
+      <div className="mb-3 flex gap-2 flex-wrap">
+        <span className="text-xs text-text-secondary self-center">Presets:</span>
+        {Object.keys(PRESETS).map(name => (
+          <button
+            key={name}
+            onClick={() => handlePreset(name)}
+            className="text-xs bg-border/30 hover:bg-border/50 px-2 py-1 rounded transition-colors"
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+        {(Object.keys(FIELD_LABELS) as (keyof LinkSettings)[]).map(field => (
+          <div key={field} className="flex items-center justify-between gap-2 py-1">
+            <label className="text-xs text-text-secondary" title={FIELD_LABELS[field].tooltip}>
+              {FIELD_LABELS[field].label}
+            </label>
+            <input
+              type="number"
+              value={current[field]}
+              onChange={e => handleChange(field, e.target.value)}
+              className={cn(
+                'w-28 bg-bg-input border rounded px-2 py-1 text-xs text-right font-mono text-text-primary',
+                edited[field] !== undefined ? 'border-accent' : 'border-border',
+              )}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-end gap-2 mt-4">
+        {hasChanges && (
+          <Button size="sm" variant="ghost" onClick={() => setEdited({})}>Reset</Button>
+        )}
+        <Button size="sm" variant="primary" onClick={handleSave} loading={saving} disabled={!hasChanges}>
+          Save & Restart
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+// ── Main Binding Manager ──────────────────────────────────────────────
+
+export function BindingManager({ onRefresh }: Props) {
+  const [discovery, setDiscovery] = useState<TailscaleDiscovery | null>(null);
+  const [profiles, setProfiles] = useState<AircraftProfiles | null>(null);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [bindPeer, setBindPeer] = useState<TailscalePeer | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  const loadData = useCallback(async () => {
+    try {
+      const [disc, profs] = await Promise.all([discoverPeers(), listAircraft()]);
+      setDiscovery(disc);
+      setProfiles(profs);
+    } catch {
+      // May fail if services not running
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 10000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  const handleReconnect = async (profileId: string) => {
+    try {
+      const res = await connectAircraft(profileId);
+      if (res.success) {
+        toast('Reconnecting...', 'success');
+        onRefresh();
+      } else {
+        toast(res.error || 'Failed', 'error');
+      }
+    } catch {
+      toast('Reconnect failed', 'error');
+    }
+  };
+
+  const handleSetActive = async (id: string) => {
+    try {
+      await setActiveAircraft(id);
+      toast('Aircraft activated', 'success');
+      loadData();
+      onRefresh();
+    } catch {
+      toast('Failed to activate', 'error');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await unbindAircraft(id);
+      toast('Aircraft unbound', 'success');
+      loadData();
+      onRefresh();
+    } catch {
+      toast('Unbind failed', 'error');
+    }
+  };
+
+  const filteredPeers = discovery?.peers.filter(p => {
+    if (filter === 'online') return p.online;
+    if (filter === 'unbound') return !p.is_bound;
+    return true;
+  }) ?? [];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="w-8 h-8 border-3 border-accent/30 border-t-accent rounded-full animate-[spin_0.8s_linear_infinite]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Network Discovery */}
+      <Card title="Network Discovery" badge={
+        <span className="text-xs text-text-secondary">{discovery?.peers.length ?? 0} peers</span>
+      }>
+        <div className="flex gap-2 mb-3">
+          {(['all', 'online', 'unbound'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                'text-xs px-3 py-1 rounded-full transition-colors',
+                filter === f
+                  ? 'bg-accent/20 text-accent border border-accent/30'
+                  : 'bg-border/20 text-text-secondary hover:text-text-primary',
+              )}
+            >
+              {f === 'all' ? 'All' : f === 'online' ? 'Online' : 'Unbound'}
+            </button>
+          ))}
+        </div>
+
+        {/* Self node */}
+        {discovery?.self && (
+          <div className="mb-3">
+            <PeerCard peer={discovery.self} onBind={() => {}} onReconnect={() => {}} />
+          </div>
+        )}
+
+        {/* Peer grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {filteredPeers.map(peer => (
+            <PeerCard
+              key={peer.tailscale_ip}
+              peer={peer}
+              onBind={() => setBindPeer(peer)}
+              onReconnect={() => {
+                if (peer.bound_profile_id) handleReconnect(peer.bound_profile_id);
+              }}
+            />
+          ))}
+        </div>
+
+        {filteredPeers.length === 0 && (
+          <p className="text-sm text-text-secondary text-center py-6">
+            {filter === 'all' ? 'No Tailscale peers found' : `No ${filter} peers`}
+          </p>
+        )}
+      </Card>
+
+      {/* Bound Aircraft */}
+      <Card title="Bound Aircraft" badge={
+        <span className="text-xs text-text-secondary">
+          {profiles ? Object.keys(profiles.profiles).length : 0} profiles
+        </span>
+      }>
+        {profiles && Object.keys(profiles.profiles).length > 0 ? (
+          <div className="divide-y divide-border">
+            {Object.entries(profiles.profiles).map(([id, profile]) => {
+              const isActive = profiles.active === id;
+              const peer = discovery?.peers.find(p => p.tailscale_ip === profile.tailscale_ip);
+
+              return (
+                <div key={id} className={cn(
+                  'flex items-center justify-between py-3 gap-3',
+                  isActive && 'bg-accent/5 -mx-4 px-4 rounded-lg',
+                )}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm truncate">{profile.name}</span>
+                      {isActive && <Badge variant="success">Active</Badge>}
+                      {peer?.online !== undefined && (
+                        <span className={cn('w-2 h-2 rounded-full', peer.online ? 'bg-success' : 'bg-error/50')} />
+                      )}
+                    </div>
+                    <div className="text-xs text-text-secondary font-mono">{profile.tailscale_ip}</div>
+                    {peer && peer.connection_mode !== 'offline' && (
+                      <div className="text-xs text-text-secondary">
+                        {peer.connection_mode}{peer.relay_name && ` (${peer.relay_name})`}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    {!isActive && (
+                      <Button size="sm" variant="ghost" onClick={() => handleSetActive(id)}>Activate</Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => handleReconnect(id)}>Connect</Button>
+                    <Button size="sm" variant="danger" onClick={() => handleDelete(id)}>Remove</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary text-center py-6">
+            No aircraft bound. Use Network Discovery above to bind one.
+          </p>
+        )}
+      </Card>
+
+      {/* Link Settings */}
+      <LinkSettingsPanel />
+
+      {/* Bind Modal */}
+      <BindModal
+        peer={bindPeer}
+        open={bindPeer !== null}
+        onClose={() => setBindPeer(null)}
+        onSuccess={() => { setBindPeer(null); loadData(); onRefresh(); }}
+      />
+    </div>
+  );
+}

@@ -39,13 +39,23 @@ jobs:
         working-directory: www-next
         run: npm run build
 
-      - name: Clean old assets and commit
+      - name: Clean stale chunks and commit
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Remove ALL old assets from git tracking, then add only new ones
-          git rm -rf www/assets/ --quiet 2>/dev/null || true
+
+          # Find all asset filenames referenced by the new index.html and main JS
+          MAIN_JS=$(grep -oE 'assets/index-[^"]+\.js' www/index.html | sed 's|assets/||')
+          REFERENCED=$(grep -oE '[A-Za-z]+-[A-Za-z0-9_-]+\.(js|css)' www/index.html www/assets/$MAIN_JS 2>/dev/null | sed 's|.*:||' | sort -u)
+
+          # Remove any tracked assets not in the referenced set
+          for f in www/assets/*.js www/assets/*.css; do
+            [ -f "$f" ] || continue
+            BASENAME=$(basename "$f")
+            echo "$REFERENCED" | grep -qx "$BASENAME" || git rm -f "$f" 2>/dev/null || true
+          done
+
           git add www/index.html www/assets/ -f
           if git diff --staged --quiet; then
             echo "No changes to commit"

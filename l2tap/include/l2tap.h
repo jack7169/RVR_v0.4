@@ -8,7 +8,7 @@
 
 /* ── Constants ─────────────────────────────────────────────────────────── */
 
-#define MAX_STREAMS      32
+#define MAX_STREAMS      128
 #define IDLE_TIMEOUT     300   /* seconds before idle flow is reaped */
 #define FRAME_HDR_LEN    4     /* [2B length BE][2B flags] */
 #define MAX_FRAME_LEN    1518  /* standard Ethernet MTU + header */

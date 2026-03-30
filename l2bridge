@@ -571,11 +571,21 @@ ssh_aircraft() {
 # HEALTH CHECK FUNCTIONS
 #############################################
 check_local_health() {
+    # Only check services that have been configured (init scripts exist)
+    # If setup hasn't been run, there's nothing to check
+    [ -f /etc/init.d/kcptun-server ] || [ -f /etc/init.d/kcptun-client ] || [ -f /etc/init.d/l2tap ] || return 0
+
     local issues=""
     is_tailscale_ready || issues="${issues}tailscale_down,"
-    pgrep -f kcptun-server > /dev/null 2>&1 || issues="${issues}kcptun_down,"
-    pgrep -f l2tap > /dev/null 2>&1 || issues="${issues}l2tap_down,"
-    ip link show l2bridge > /dev/null 2>&1 || issues="${issues}interface_missing,"
+
+    if [ -f /etc/init.d/kcptun-server ]; then
+        pgrep -f kcptun-server > /dev/null 2>&1 || issues="${issues}kcptun_down,"
+    elif [ -f /etc/init.d/kcptun-client ]; then
+        pgrep -f kcptun-client > /dev/null 2>&1 || issues="${issues}kcptun_down,"
+    fi
+
+    [ -f /etc/init.d/l2tap ] && ! pgrep -f l2tap > /dev/null 2>&1 && issues="${issues}l2tap_down,"
+    [ -f /etc/init.d/l2tap ] && ! ip link show l2bridge > /dev/null 2>&1 && issues="${issues}interface_missing,"
 
     [ -n "$issues" ] && { echo "${issues%,}"; return 1; }
     return 0

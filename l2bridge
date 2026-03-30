@@ -1611,7 +1611,7 @@ cmd_webui_install() {
         log_info "Installing from local source: $src_www"
         cp "$src_www/index.html" "$WEBUI_ROOT/"
         if [ -d "$src_www/assets" ]; then
-            mkdir -p "$WEBUI_ROOT/assets"
+            rm -rf "$WEBUI_ROOT/assets" && mkdir -p "$WEBUI_ROOT/assets"
             cp -r "$src_www/assets/"* "$WEBUI_ROOT/assets/"
         fi
         cp "$src_www/cgi-bin/"*.cgi "$WEBUI_ROOT/cgi-bin/"

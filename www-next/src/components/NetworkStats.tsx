@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -71,18 +71,17 @@ export function NetworkStats({ status }: Props) {
     }).catch(() => {});
   }, []);
 
-  // Slice from cached server history for the selected window — instant, no fetch
-  const data = useMemo(() => {
-    const clientData = getWindow(timeWindow);
-    // Once client has enough live data, prefer it (live updates)
-    if (clientData.length >= 3) return clientData;
-    // Otherwise slice server history for the requested window
-    if (allHistory.length > 0) {
-      const cutoff = allHistory[allHistory.length - 1].t - timeWindow * 1000;
-      return allHistory.filter(p => p.t >= cutoff);
-    }
-    return clientData;
-  }, [timeWindow, allHistory, getWindow, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Compute chart data directly in render — no useMemo to go stale
+  const clientData = getWindow(timeWindow);
+  let data: DataPoint[];
+  if (clientData.length >= 3) {
+    data = clientData;
+  } else if (allHistory.length > 0) {
+    const cutoff = allHistory[allHistory.length - 1].t - timeWindow * 1000;
+    data = allHistory.filter(p => p.t >= cutoff);
+  } else {
+    data = clientData;
+  }
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

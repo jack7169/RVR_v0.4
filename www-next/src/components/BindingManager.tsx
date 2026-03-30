@@ -95,7 +95,7 @@ function BindModal({
     : `Setting up ${name}...`;
 
   return (
-    <Modal open={open} onClose={loading ? undefined : onClose} title={stepTitle} wide>
+    <Modal open={open} onClose={loading ? () => {} : onClose} title={stepTitle} wide>
       <div className="space-y-4">
         {/* Step indicator */}
         <div className="flex gap-1">

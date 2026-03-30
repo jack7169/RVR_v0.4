@@ -83,24 +83,37 @@ if [ -f "$HEALTH_FILE" ]; then
     HEALTH_DETAILS="${DETAILS:-}"
 fi
 
-# Get active aircraft from profiles or legacy config
+# Get active aircraft from profiles
 AIRCRAFT_ID=""
 AIRCRAFT_NAME=""
 AIRCRAFT_IP=""
 
 if [ -f "$AIRCRAFT_FILE" ]; then
-    # Use jsonfilter if available, otherwise parse manually
     if command -v jsonfilter >/dev/null 2>&1; then
         AIRCRAFT_ID=$(jsonfilter -i "$AIRCRAFT_FILE" -e '@.active' 2>/dev/null)
         if [ -n "$AIRCRAFT_ID" ]; then
             AIRCRAFT_NAME=$(jsonfilter -i "$AIRCRAFT_FILE" -e "@.profiles[\"$AIRCRAFT_ID\"].name" 2>/dev/null)
             AIRCRAFT_IP=$(jsonfilter -i "$AIRCRAFT_FILE" -e "@.profiles[\"$AIRCRAFT_ID\"].tailscale_ip" 2>/dev/null)
         fi
+    else
+        # Fallback: parse active profile with awk
+        AIRCRAFT_ID=$(sed -n 's/.*"active"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$AIRCRAFT_FILE" | head -1)
+        if [ -n "$AIRCRAFT_ID" ]; then
+            AIRCRAFT_IP=$(awk -v id="$AIRCRAFT_ID" '
+                /"'"$AIRCRAFT_ID"'"/ { found=1 }
+                found && /"tailscale_ip"/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print; exit }
+            ' "$AIRCRAFT_FILE")
+            AIRCRAFT_NAME=$(awk -v id="$AIRCRAFT_ID" '
+                /"'"$AIRCRAFT_ID"'"/ { found=1 }
+                found && /"name"/ { gsub(/.*"name":[[:space:]]*"/, ""); gsub(/".*/, ""); print; exit }
+            ' "$AIRCRAFT_FILE")
+        fi
     fi
 fi
 
-# Fallback to legacy config
-if [ -z "$AIRCRAFT_IP" ] && [ -f "$STATE_FILE" ]; then
+# Only fall back to legacy state if we found an active profile
+# (prevents showing stale aircraft from failed bind attempts)
+if [ -z "$AIRCRAFT_IP" ] && [ -n "$AIRCRAFT_ID" ] && [ -f "$STATE_FILE" ]; then
     . "$STATE_FILE"
     AIRCRAFT_IP="${AIRCRAFT_IP:-}"
     AIRCRAFT_NAME="${AIRCRAFT_NAME:-$AIRCRAFT_IP}"

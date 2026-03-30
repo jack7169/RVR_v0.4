@@ -1198,7 +1198,14 @@ chmod +x /etc/init.d/l2tap'
 
     echo "[Aircraft] Setup complete."
 
-    # No key exchange needed — l2tap has no authentication (kcptun + Tailscale handle security)
+    # Sync binding profile to aircraft (so aircraft UI shows GCS as peer)
+    local GCS_HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "GCS")
+    echo "[*] Syncing binding profile to aircraft..."
+    ssh_aircraft "$AIRCRAFT_IP" "
+        mkdir -p /etc/l2bridge
+        printf '{\"version\":1,\"active\":\"gcs\",\"profiles\":{\"gcs\":{\"name\":\"$GCS_HOSTNAME\",\"tailscale_ip\":\"$GCS_IP\",\"ssh_password\":\"\",\"created\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\",\"last_used\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\"}}}' > /etc/l2bridge/aircraft.json
+        echo 'AIRCRAFT_IP=\"$GCS_IP\"' > /etc/l2bridge.conf
+    " 2>/dev/null || echo "    Warning: Could not sync profile to aircraft"
 
     save_aircraft_ip "$AIRCRAFT_IP"
     save_aircraft_profile "$AIRCRAFT_NAME" "$AIRCRAFT_IP"
@@ -1858,6 +1865,14 @@ cmd_add() {
 
     save_aircraft_ip "$AIRCRAFT_IP"
     save_aircraft_profile "$AIRCRAFT_NAME" "$AIRCRAFT_IP"
+
+    # Sync binding profile to aircraft
+    local GCS_HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "GCS")
+    ssh_aircraft "$AIRCRAFT_IP" "
+        mkdir -p /etc/l2bridge
+        printf '{\"version\":1,\"active\":\"gcs\",\"profiles\":{\"gcs\":{\"name\":\"$GCS_HOSTNAME\",\"tailscale_ip\":\"$GCS_IP\",\"ssh_password\":\"\",\"created\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\",\"last_used\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\"}}}' > /etc/l2bridge/aircraft.json
+        echo 'AIRCRAFT_IP=\"$GCS_IP\"' > /etc/l2bridge.conf
+    " 2>/dev/null || true
 
     echo "[*] Starting services..."
     cmd_start_internal "$AIRCRAFT_IP"

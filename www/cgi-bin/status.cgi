@@ -141,14 +141,21 @@ if [ -n "$AIRCRAFT_IP" ]; then
     if ping -c 1 -W 1 "$AIRCRAFT_IP" >/dev/null 2>&1; then
         AIRCRAFT_REACHABLE="true"
 
-        # SSH check for detailed status (only if key exists and ping succeeded)
-        if [ -f "$SSH_KEY" ]; then
-            REMOTE_STATUS=$(timeout 5 dbclient -i "$SSH_KEY" -y root@"$AIRCRAFT_IP" '
-                pgrep -f kcptun-client >/dev/null && echo -n "running " || echo -n "stopped "
-                pgrep l2tap >/dev/null && echo -n "running " || echo -n "stopped "
-                ip link show l2bridge >/dev/null 2>&1 && echo "up" || echo "down"
-            ' 2>/dev/null)
-
+        # Try discovery endpoint first (fast, no SSH overhead)
+        DISC_JSON=$(wget -q -T 2 -O- "http://${AIRCRAFT_IP}:8081/cgi-bin/discovery.cgi" 2>/dev/null)
+        if [ -n "$DISC_JSON" ]; then
+            AIRCRAFT_KCPTUN=$(echo "$DISC_JSON" | sed -n 's/.*"kcptun"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            AIRCRAFT_L2TAP=$(echo "$DISC_JSON" | sed -n 's/.*"l2tap"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            AIRCRAFT_IFACE=$(echo "$DISC_JSON" | sed -n 's/.*"l2bridge_interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        elif [ -f "$SSH_KEY" ]; then
+            # Fallback to SSH
+            remote_kcptun_proc="kcptun-server"
+            [ "$LOCAL_ROLE" = "gcs" ] && remote_kcptun_proc="kcptun-client"
+            REMOTE_STATUS=$(timeout 5 dbclient -i "$SSH_KEY" -y root@"$AIRCRAFT_IP" "
+                pgrep -f $remote_kcptun_proc >/dev/null && echo -n 'running ' || echo -n 'stopped '
+                pgrep l2tap >/dev/null && echo -n 'running ' || echo -n 'stopped '
+                ip link show l2bridge >/dev/null 2>&1 && echo 'up' || echo 'down'
+            " 2>/dev/null)
             if [ -n "$REMOTE_STATUS" ]; then
                 AIRCRAFT_KCPTUN=$(echo "$REMOTE_STATUS" | awk '{print $1}')
                 AIRCRAFT_L2TAP=$(echo "$REMOTE_STATUS" | awk '{print $2}')

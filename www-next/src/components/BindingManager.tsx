@@ -568,15 +568,11 @@ export function BindingManager({ onRefresh }: Props) {
           </form>
         </div>
 
-        {/* Self node */}
-        {discovery?.self && (
-          <div className="mb-3">
-            <PeerCard peer={discovery.self} selfVersion={discovery.self.git_version} onBind={() => {}} onReconnect={() => {}} />
-          </div>
-        )}
-
-        {/* Peer grid */}
+        {/* Peer grid (includes self, formatted consistently) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {discovery?.self && (
+            <PeerCard peer={discovery.self} selfVersion={discovery.self.git_version} onBind={() => {}} onReconnect={() => {}} />
+          )}
           {filteredPeers.map(peer => (
             <PeerCard
               key={peer.ip}
@@ -597,50 +593,92 @@ export function BindingManager({ onRefresh }: Props) {
         )}
       </Card>
 
-      {/* Bound Aircraft */}
-      <Card title="Bound Aircraft" badge={
-        <span className="text-xs text-text-secondary">
-          {profiles ? Object.keys(profiles.profiles).length : 0} profiles
-        </span>
-      }>
-        {profiles && Object.keys(profiles.profiles).length > 0 ? (
-          <div className="divide-y divide-border">
-            {Object.entries(profiles.profiles).map(([id, profile]) => {
-              const isActive = profiles.active === id;
-              const peer = discovery?.peers.find(p => p.ip === profile.tailscale_ip);
+      {/* Active Binding — side-by-side GCS <-> Aircraft */}
+      <Card title="Active Binding">
+        {profiles && profiles.active && profiles.profiles[profiles.active] ? (() => {
+          const activeProfile = profiles.profiles[profiles.active];
+          const aircraftPeer = discovery?.peers.find(p => p.ip === activeProfile.tailscale_ip);
+          const selfPeer = discovery?.self;
+          const isOnline = aircraftPeer?.connection_mode === 'online';
 
-              return (
-                <div key={id} className={cn(
-                  'flex items-center justify-between py-3 gap-3',
-                  isActive && 'bg-accent/5 -mx-4 px-4 rounded-lg',
-                )}>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm truncate">{profile.name}</span>
-                      {isActive && <Badge variant="success">Active</Badge>}
-                      {peer && (
-                        <span className={cn('w-2 h-2 rounded-full', peer.connection_mode === 'online' ? 'bg-success' : 'bg-error/50')} />
-                      )}
-                    </div>
-                    <div className="text-xs text-text-secondary font-mono">{profile.tailscale_ip}</div>
-                    {peer && peer.connection_mode !== 'offline' && (
-                      <div className="text-xs text-text-secondary">
-                        {peer.connection_mode}
-                      </div>
-                    )}
+          return (
+            <div>
+              {/* Side-by-side connection display */}
+              <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-center">
+                {/* GCS side */}
+                <div className="bg-bg-primary rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-success" />
+                    <span className="font-medium text-sm">{selfPeer?.hostname || 'GCS'}</span>
+                    <Badge variant="info">GCS</Badge>
                   </div>
-                  <div className="flex gap-1 flex-shrink-0">
-                    {!isActive && (
-                      <Button size="sm" variant="ghost" onClick={() => handleSetActive(id)}>Activate</Button>
-                    )}
-                    <Button size="sm" variant="ghost" onClick={() => handleReconnect(id)}>Connect</Button>
-                    <Button size="sm" variant="danger" onClick={() => handleDelete(id)}>Remove</Button>
+                  <div className="text-xs font-mono text-text-secondary">{selfPeer?.ip || '—'}</div>
+                  <div className="text-xs text-success mt-1">online</div>
+                </div>
+
+                {/* Connection indicator */}
+                <div className="flex flex-col items-center gap-1 px-2">
+                  <div className={cn(
+                    'w-16 h-0.5 rounded-full',
+                    isOnline ? 'bg-success' : 'bg-error/50',
+                  )} />
+                  <span className={cn(
+                    'text-[10px] font-medium',
+                    isOnline ? 'text-success' : 'text-error',
+                  )}>
+                    {isOnline ? 'LINKED' : 'DOWN'}
+                  </span>
+                  <div className={cn(
+                    'w-16 h-0.5 rounded-full',
+                    isOnline ? 'bg-success' : 'bg-error/50',
+                  )} />
+                </div>
+
+                {/* Aircraft side */}
+                <div className="bg-bg-primary rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={cn('w-2.5 h-2.5 rounded-full', isOnline ? 'bg-success' : 'bg-error/50')} />
+                    <span className="font-medium text-sm">{activeProfile.name}</span>
+                    <Badge variant="neutral">Aircraft</Badge>
+                  </div>
+                  <div className="text-xs font-mono text-text-secondary">{activeProfile.tailscale_ip}</div>
+                  <div className={cn('text-xs mt-1', isOnline ? 'text-success' : 'text-error')}>
+                    {aircraftPeer?.connection_mode || 'unknown'}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-center gap-2 mt-3">
+                <Button size="sm" variant="ghost" onClick={() => handleReconnect(profiles.active)}>Reconnect</Button>
+                <Button size="sm" variant="danger" onClick={() => handleDelete(profiles.active)}>Unbind</Button>
+              </div>
+
+              {/* Other profiles (if any) */}
+              {Object.keys(profiles.profiles).length > 1 && (
+                <div className="mt-4 pt-3 border-t border-border">
+                  <div className="text-xs text-text-secondary mb-2">Other Profiles</div>
+                  {Object.entries(profiles.profiles).filter(([id]) => id !== profiles.active).map(([id, profile]) => {
+                    const peer = discovery?.peers.find(p => p.ip === profile.tailscale_ip);
+                    return (
+                      <div key={id} className="flex items-center justify-between py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('w-2 h-2 rounded-full', peer?.connection_mode === 'online' ? 'bg-success' : 'bg-error/50')} />
+                          <span className="text-sm">{profile.name}</span>
+                          <span className="text-xs font-mono text-text-secondary">{profile.tailscale_ip}</span>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => handleSetActive(id)}>Activate</Button>
+                          <Button size="sm" variant="danger" onClick={() => handleDelete(id)}>Remove</Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })() : (
           <p className="text-sm text-text-secondary text-center py-6">
             No aircraft bound. Use Network Discovery above to bind one.
           </p>

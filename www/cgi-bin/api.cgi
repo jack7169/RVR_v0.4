@@ -548,6 +548,7 @@ run_discovery_scan() {
     [ -f /etc/init.d/kcptun-server ] && self_role="gcs"
     [ -f /etc/init.d/kcptun-client ] && self_role="aircraft"
     local self_gitver=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
+    local self_ip=$(ip -4 addr show 2>/dev/null | awk '/inet 100\./ {gsub(/\/.*/, "", $2); print $2; exit}')
 
     # Collect peer IPs from all sources
     local tmp_peers="/tmp/l2bridge-disc-peers.$$"
@@ -592,7 +593,7 @@ run_discovery_scan() {
     {
         printf '{\n  "self": {\n'
         printf '    "hostname": "%s",\n' "$self_hostname"
-        printf '    "ip": "",\n'
+        printf '    "ip": "%s",\n' "$self_ip"
         printf '    "role": "%s",\n' "$self_role"
         printf '    "connection_mode": "online",\n'
         printf '    "git_version": "%s",\n' "$self_gitver"

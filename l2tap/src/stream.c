@@ -8,6 +8,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
 
 static int set_nonblock(int fd)
 {
@@ -222,7 +224,28 @@ void stream_close(struct l2tap_ctx *ctx, int idx)
 
     LOG_DBG("closing stream[%d] fd=%d", idx, s->fd);
 
+    /* Count frames lost due to stream close with pending data */
+    if (s->wlen > 0) {
+        /* Estimate frames in write buffer: wlen / avg_frame_size */
+        size_t avg = (FRAME_HDR_LEN + 200); /* conservative estimate */
+        uint64_t lost = s->wlen / avg;
+        if (lost == 0) lost = 1;
+        ctx->seq_drops += lost;
+        LOG_INFO("stream[%d] closed with %zu bytes buffered (~%lu frames lost)",
+                 s->slot, s->wlen, (unsigned long)lost);
+    }
+
+    /* Count unsent data in kernel TCP socket buffer */
     if (s->fd >= 0) {
+        int unsent = 0;
+        if (ioctl(s->fd, TIOCOUTQ, &unsent) == 0 && unsent > 0) {
+            size_t avg = (FRAME_HDR_LEN + 200);
+            uint64_t lost = unsent / avg;
+            if (lost == 0) lost = 1;
+            ctx->seq_drops += lost;
+            LOG_INFO("stream[%d] TCP socket had %d unsent bytes (~%lu frames lost)",
+                     s->slot, unsent, (unsigned long)lost);
+        }
         epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, s->fd, NULL);
         close(s->fd);
     }

@@ -510,6 +510,7 @@ export function BindingManager({ onRefresh }: Props) {
   };
 
   const filteredPeers = discovery?.peers.filter(p => {
+    if (p.is_self) return false; // Self shown separately at top
     if (filter === 'online') return p.connection_mode === 'online';
     if (filter === 'unbound') return !p.is_bound;
     return true;
@@ -591,7 +592,7 @@ export function BindingManager({ onRefresh }: Props) {
 
         {filteredPeers.length === 0 && (
           <p className="text-sm text-text-secondary text-center py-6">
-            {filter === 'all' ? 'No Tailscale peers found' : `No ${filter} peers`}
+            {filter === 'all' ? 'No peers found' : `No ${filter} peers`}
           </p>
         )}
       </Card>

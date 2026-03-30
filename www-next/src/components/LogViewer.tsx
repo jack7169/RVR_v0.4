@@ -25,7 +25,7 @@ export function LogViewer() {
     new Set(['error', 'warn', 'info', 'debug']),
   );
   const [showSearch, setShowSearch] = useState(false);
-  const endRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const toggleLevel = (level: LogLevel) => {
     setLevelFilter(prev => {
@@ -42,8 +42,8 @@ export function LogViewer() {
   });
 
   useEffect(() => {
-    if (!paused && endRef.current) {
-      endRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (!paused && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [filteredLogs.length, paused]);
 
@@ -122,6 +122,7 @@ export function LogViewer() {
 
       {/* Log entries */}
       <div
+        ref={containerRef}
         className={cn('overflow-y-auto font-mono text-xs', expanded ? 'flex-1' : 'h-96')}
         style={{ backgroundColor: '#0d1117' }}
       >
@@ -149,7 +150,6 @@ export function LogViewer() {
             );
           })
         )}
-        <div ref={endRef} />
       </div>
     </div>
   );

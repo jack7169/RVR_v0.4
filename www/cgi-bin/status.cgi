@@ -182,11 +182,10 @@ fi
 CONNECTION_ESTABLISHED="false"
 CONNECTION_DURATION=0
 
-if [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
-   [ "$IFACE_STATUS" = "up" ] 2>/dev/null; then
+# Connected if local bridge is fully up, or l2tap running + aircraft reachable
+if { [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && [ "$IFACE_STATUS" = "up" ]; } || \
+   { [ "$L2TAP_STATUS" = "running" ] && [ "$AIRCRAFT_REACHABLE" = "true" ]; }; then
     CONNECTION_ESTABLISHED="true"
-
-    # Track connection start time
     if [ ! -f "$CONNECTED_SINCE_FILE" ]; then
         date +%s > "$CONNECTED_SINCE_FILE"
     fi
@@ -194,7 +193,6 @@ if [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
     NOW=$(date +%s)
     CONNECTION_DURATION=$((NOW - CONNECTED_SINCE))
 else
-    # Clear connection tracking if not connected
     rm -f "$CONNECTED_SINCE_FILE" 2>/dev/null
 fi
 

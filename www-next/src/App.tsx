@@ -10,6 +10,7 @@ import { CaptureControls } from './components/CaptureControls';
 import { LogViewer } from './components/LogViewer';
 import { FileManager } from './components/FileManager';
 import { BindingManager } from './components/BindingManager';
+import { HelpPage } from './components/HelpPage';
 
 export default function App() {
   const { status, error, lastUpdate, refresh } = useStatus();
@@ -54,6 +55,10 @@ export default function App() {
 
         {activeTab === 'binding' && (
           <BindingManager onRefresh={refresh} />
+        )}
+
+        {activeTab === 'help' && (
+          <HelpPage />
         )}
 
         {activeTab === 'dashboard' && !status && !error && (

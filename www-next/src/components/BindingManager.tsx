@@ -263,18 +263,51 @@ const PRESETS: Record<string, Partial<LinkSettings>> = {
   },
 };
 
-const FIELD_LABELS: Record<keyof LinkSettings, { label: string; tooltip: string }> = {
-  kcp_nodelay: { label: 'No Delay', tooltip: '1=no ACK delay (recommended)' },
-  kcp_interval: { label: 'Interval (ms)', tooltip: 'Internal update interval. Lower=more responsive, higher CPU' },
-  kcp_resend: { label: 'Resend Threshold', tooltip: 'Retransmit after N missed ACKs. 4=good for Starlink drops' },
-  kcp_nc: { label: 'No Congestion', tooltip: '1=disable congestion control (recommended for dedicated links)' },
-  kcp_segment_mtu: { label: 'Segment MTU', tooltip: 'KCP segment size. 1200 fits Tailscale 1280 limit' },
-  kcp_sndwnd: { label: 'Send Window', tooltip: 'Send window size in packets' },
-  kcp_rcvwnd: { label: 'Recv Window', tooltip: 'Receive window size in packets' },
-  kcp_sockbuf: { label: 'Socket Buffer', tooltip: 'Kernel socket buffer size (bytes)' },
-  kcp_smuxbuf: { label: 'Smux Buffer', tooltip: 'Smux overall buffer size (bytes)' },
-  kcp_streambuf: { label: 'Stream Buffer', tooltip: 'Per-stream buffer size (bytes)' },
-  bridge_mtu: { label: 'Bridge MTU', tooltip: 'L2 bridge interface MTU. 1500=standard Ethernet' },
+const FIELD_HELP: Record<keyof LinkSettings, { label: string; help: string }> = {
+  kcp_nodelay: {
+    label: 'No Delay',
+    help: 'Controls ACK delay behavior. 1=send ACKs immediately (recommended for low latency). 0=delayed ACKs (saves bandwidth at cost of responsiveness). Keep at 1 for satellite links.',
+  },
+  kcp_interval: {
+    label: 'Interval (ms)',
+    help: 'Internal KCP update interval in milliseconds. Controls how often the protocol checks for retransmits and sends data. Lower=more responsive but higher CPU. 10ms=aggressive, 20ms=balanced (default), 50ms=conservative. Starlink: 20ms handles 100-500ms drops well.',
+  },
+  kcp_resend: {
+    label: 'Resend Threshold',
+    help: 'Fast retransmit after N missed ACKs. When this many ACKs are skipped for a packet, it is retransmitted without waiting for the timeout. 2=aggressive retransmit, 4=balanced (default for Starlink — waits ~80ms before retransmit, rides out brief drops). Higher values reduce unnecessary retransmits on lossy links.',
+  },
+  kcp_nc: {
+    label: 'No Congestion',
+    help: 'Congestion control toggle. 1=disabled (recommended for dedicated links where you control the bandwidth). 0=enabled (throttles sending rate when loss detected — useful on shared networks). For Starlink with a single aircraft, disable congestion control.',
+  },
+  kcp_segment_mtu: {
+    label: 'Segment MTU',
+    help: 'Maximum size of a single KCP segment in bytes. Must fit within the VPN tunnel MTU. Default 1200 fits within Tailscale/WireGuard 1280-byte MTU with overhead. Increasing may improve throughput but risks fragmentation. Do not exceed 1400.',
+  },
+  kcp_sndwnd: {
+    label: 'Send Window',
+    help: 'Send window size in packets. Limits how many unacknowledged packets can be in flight. Larger windows allow higher throughput on high-latency links. 1024=good for Starlink (40-60ms RTT). Reduce if experiencing congestion, increase for higher bandwidth links.',
+  },
+  kcp_rcvwnd: {
+    label: 'Recv Window',
+    help: 'Receive window size in packets. Should generally match send window. Controls how many out-of-order packets the receiver will buffer. 1024=default. Must be equal to or larger than send window for full throughput.',
+  },
+  kcp_sockbuf: {
+    label: 'Socket Buffer',
+    help: 'Kernel TCP socket buffer size in bytes for the local kcptun connection. 8MB (8388608) default. Larger buffers prevent kernel-level drops during bursts. Reduce only if RAM is critically constrained.',
+  },
+  kcp_smuxbuf: {
+    label: 'Smux Buffer',
+    help: 'Smux multiplexer overall buffer size in bytes. Controls how much data can be buffered across ALL streams combined. 8MB default. This is the total buffer shared by all l2tap streams through the tunnel.',
+  },
+  kcp_streambuf: {
+    label: 'Stream Buffer',
+    help: 'Per-stream buffer size in bytes within the smux multiplexer. Each l2tap flow (MAC pair direction) gets its own stream with this buffer. 2MB default. Larger buffers help absorb bursts from individual devices (e.g., camera video). Total memory = streambuf x active_streams.',
+  },
+  bridge_mtu: {
+    label: 'Bridge MTU',
+    help: 'L2 bridge interface MTU in bytes. 1500=standard Ethernet (default). Must match what bridged devices expect. Cameras and most network equipment use 1500. Only change if you have specific MTU requirements on your LAN.',
+  },
 };
 
 function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
@@ -352,11 +385,16 @@ function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
-        {(Object.keys(FIELD_LABELS) as (keyof LinkSettings)[]).map(field => (
-          <div key={field} className="flex items-center justify-between gap-2 py-1">
-            <label className="text-xs text-text-secondary" title={FIELD_LABELS[field].tooltip}>
-              {FIELD_LABELS[field].label}
+        {(Object.keys(FIELD_HELP) as (keyof LinkSettings)[]).map(field => (
+          <div key={field} className="flex items-center justify-between gap-2 py-1 group/field relative">
+            <label className="text-xs text-text-secondary flex items-center gap-1 cursor-help">
+              {FIELD_HELP[field].label}
+              <span className="text-text-secondary/40 group-hover/field:text-accent transition-colors">?</span>
             </label>
+            <div className="hidden group-hover/field:block absolute left-0 bottom-full mb-1 z-50 w-72 bg-bg-secondary border border-border rounded-lg p-3 shadow-xl text-xs text-text-secondary leading-relaxed">
+              <div className="font-medium text-text-primary mb-1">{FIELD_HELP[field].label}</div>
+              {FIELD_HELP[field].help}
+            </div>
             <input
               type="number"
               value={current[field]}

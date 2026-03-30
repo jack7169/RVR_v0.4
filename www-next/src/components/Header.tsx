@@ -4,7 +4,7 @@ import type { AircraftProfiles } from '../api/types';
 import { cn } from '../lib/utils';
 import { useToast } from './ui/Toast';
 
-export type AppTab = 'dashboard' | 'binding';
+export type AppTab = 'dashboard' | 'binding' | 'help';
 
 interface HeaderProps {
   connected: boolean;
@@ -71,7 +71,7 @@ export function Header({ connected, activeTab, onTabChange, onProfileChange }: H
         </div>
 
         <nav className="flex gap-1 -mb-px">
-          {(['dashboard', 'binding'] as const).map(tab => (
+          {(['dashboard', 'binding', 'help'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => onTabChange(tab)}
@@ -82,7 +82,7 @@ export function Header({ connected, activeTab, onTabChange, onProfileChange }: H
                   : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border',
               )}
             >
-              {tab === 'dashboard' ? 'Dashboard' : 'Binding'}
+              {tab === 'dashboard' ? 'Dashboard' : tab === 'binding' ? 'Binding' : 'Help'}
             </button>
           ))}
         </nav>

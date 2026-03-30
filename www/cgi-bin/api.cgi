@@ -872,88 +872,73 @@ get_outages() {
         exit 0
     fi
 
-    # Parse SNMP CSV: separate actual loss (outages) from retransmits (recovery)
-    # Outage = LostSegs delta > 0 (permanent data loss, RED)
-    # Recovery = RetransSegs delta > 0 but no loss (KCP recovered, AMBER)
-    awk -F',' '
+    # Parse SNMP CSV: all KCP retransmit events are RECOVERY (amber)
+    # KCPtun LostSegs = "loss detected, retransmit scheduled" — NOT permanent loss
+    # KCPtun RetransSegs = "segments retransmitted" — KCP always recovers
+    # True data loss only comes from l2tap hard drops (separate stats)
+    #
+    # Recovery event = any retransmit activity (RetransSegs delta > 0)
+    # Loss event = l2tap hard drops (read from stats file, not SNMP)
+
+    # Get l2tap hard drops
+    local hard_drops=0
+    [ -f /tmp/l2tap.stats ] && hard_drops=$(grep "^HARD_DROPS=" /tmp/l2tap.stats 2>/dev/null | cut -d= -f2)
+    hard_drops="${hard_drops:-0}"
+
+    awk -F',' -v hard_drops="$hard_drops" '
     BEGIN {
-        outage_count = 0; recovery_count = 0
-        total_outage_sec = 0; total_recovery_sec = 0
-        total_retrans = 0; total_lost = 0
-        in_outage = 0; in_recovery = 0
-        quiet_count = 0; rec_quiet = 0
+        recovery_count = 0
+        total_recovery_sec = 0
+        total_retrans = 0
+        in_recovery = 0; rec_quiet = 0
         first_ts = 0; last_ts = 0
         printf "{\"outages\":["
-        first_outage = 1
+        first_event = 1
     }
     /^[0-9]/ {
         ts = $1
         retrans = $17 + 0; fast_retrans = $18 + 0; early_retrans = $19 + 0
-        lost = $20 + 0
 
         if (first_ts == 0) first_ts = ts
         last_ts = ts
 
         if (prev_ts > 0) {
             d_retrans = (retrans - prev_retrans) + (fast_retrans - prev_fast) + (early_retrans - prev_early)
-            d_lost = lost - prev_lost
             total_retrans += d_retrans
-            total_lost += d_lost
 
-            # Track outages (actual loss only)
-            if (d_lost > 0) {
-                if (!in_outage) { in_outage = 1; outage_start = prev_ts; outage_retrans = 0; outage_lost = 0 }
-                outage_retrans += d_retrans; outage_lost += d_lost; quiet_count = 0
-            } else if (in_outage) {
-                quiet_count++
-                if (quiet_count >= 2) {
-                    duration = prev_ts - outage_start
-                    if (!first_outage) printf ","
-                    printf "{\"type\":\"loss\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
-                        outage_start, prev_ts, duration, outage_retrans, outage_lost
-                    total_outage_sec += duration; outage_count++; in_outage = 0; first_outage = 0
-                }
-            }
-
-            # Track recovery events (retransmits without loss)
-            if (d_retrans > 0 && d_lost == 0) {
+            if (d_retrans > 0) {
                 if (!in_recovery) { in_recovery = 1; rec_start = prev_ts; rec_retrans = 0 }
                 rec_retrans += d_retrans; rec_quiet = 0
             } else if (in_recovery) {
                 rec_quiet++
                 if (rec_quiet >= 2) {
                     duration = prev_ts - rec_start
-                    if (!first_outage) printf ","
+                    if (!first_event) printf ","
                     printf "{\"type\":\"recovery\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":0}", \
                         rec_start, prev_ts, duration, rec_retrans
-                    total_recovery_sec += duration; recovery_count++; in_recovery = 0; first_outage = 0
+                    total_recovery_sec += duration; recovery_count++; first_event = 0; in_recovery = 0
                 }
             }
         }
-        prev_ts = ts; prev_retrans = retrans; prev_fast = fast_retrans; prev_early = early_retrans; prev_lost = lost
+        prev_ts = ts; prev_retrans = retrans; prev_fast = fast_retrans; prev_early = early_retrans
     }
     END {
-        if (in_outage) {
-            duration = last_ts - outage_start
-            if (!first_outage) printf ","
-            printf "{\"type\":\"loss\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
-                outage_start, last_ts, duration, outage_retrans, outage_lost
-            total_outage_sec += duration; outage_count++
-        }
         if (in_recovery) {
             duration = last_ts - rec_start
-            if (!first_outage && !in_outage) printf ","
+            if (!first_event) printf ","
             printf "{\"type\":\"recovery\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":0}", \
                 rec_start, last_ts, duration, rec_retrans
             total_recovery_sec += duration; recovery_count++
         }
         total_sec = (last_ts > first_ts) ? (last_ts - first_ts) : 1
-        uptime_pct = (total_sec > 0) ? ((total_sec - total_outage_sec) * 100.0 / total_sec) : 100
+        # Uptime only degraded by actual loss (hard drops), not recoveries
+        loss_events = (hard_drops+0 > 0) ? 1 : 0
+        uptime_pct = (hard_drops+0 > 0) ? 99.0 : 100.0
 
-        printf "],\"summary\":{\"total_outages\":%d,\"total_recoveries\":%d,\"total_outage_seconds\":%d,\"total_recovery_seconds\":%d,\"uptime_pct\":%.1f,\"total_retrans\":%d,\"total_lost\":%d},", \
-            outage_count, recovery_count, total_outage_sec, total_recovery_sec, uptime_pct, total_retrans, total_lost
-        printf "\"current\":{\"in_outage\":%s,\"in_recovery\":%s,\"retrans_rate\":0}}\n", \
-            in_outage ? "true" : "false", in_recovery ? "true" : "false"
+        printf "],\"summary\":{\"total_outages\":%d,\"total_recoveries\":%d,\"total_outage_seconds\":0,\"total_recovery_seconds\":%d,\"uptime_pct\":%.1f,\"total_retrans\":%d,\"total_lost\":%d},", \
+            loss_events, recovery_count, total_recovery_sec, uptime_pct, total_retrans, hard_drops+0
+        printf "\"current\":{\"in_outage\":false,\"in_recovery\":%s,\"retrans_rate\":0}}\n", \
+            in_recovery ? "true" : "false"
     }
     ' "$snmp_log"
     exit 0

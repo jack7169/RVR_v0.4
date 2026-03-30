@@ -15,9 +15,8 @@ function formatDurationShort(seconds: number): string {
 function OutageTimeline({ outages, windowSeconds }: { outages: OutageEvent[]; windowSeconds: number }) {
   const now = Math.floor(Date.now() / 1000);
   const start = now - windowSeconds;
-  const segments: { pct: number; outage: boolean }[] = [];
+  const segments: { pct: number; type: 'ok' | 'loss' | 'recovery' }[] = [];
 
-  // Build segments from outage events
   let cursor = start;
   const relevant = outages.filter(o => o.end > start).sort((a, b) => a.start - b.start);
 
@@ -25,13 +24,13 @@ function OutageTimeline({ outages, windowSeconds }: { outages: OutageEvent[]; wi
     const oStart = Math.max(o.start, start);
     const oEnd = Math.min(o.end, now);
     if (oStart > cursor) {
-      segments.push({ pct: (oStart - cursor) / windowSeconds * 100, outage: false });
+      segments.push({ pct: (oStart - cursor) / windowSeconds * 100, type: 'ok' });
     }
-    segments.push({ pct: (oEnd - oStart) / windowSeconds * 100, outage: true });
+    segments.push({ pct: (oEnd - oStart) / windowSeconds * 100, type: o.type === 'loss' ? 'loss' : 'recovery' });
     cursor = oEnd;
   }
   if (cursor < now) {
-    segments.push({ pct: (now - cursor) / windowSeconds * 100, outage: false });
+    segments.push({ pct: (now - cursor) / windowSeconds * 100, type: 'ok' });
   }
 
   return (
@@ -43,7 +42,7 @@ function OutageTimeline({ outages, windowSeconds }: { outages: OutageEvent[]; wi
           <div
             key={i}
             style={{ width: `${Math.max(seg.pct, 0.5)}%` }}
-            className={seg.outage ? 'bg-error/60' : 'bg-success/20'}
+            className={seg.type === 'loss' ? 'bg-error/60' : seg.type === 'recovery' ? 'bg-warning/40' : 'bg-success/20'}
           />
         ))
       )}
@@ -85,7 +84,11 @@ export function OutagePanel({ status }: { status?: StatusResponse | null }) {
           <h3 className="font-semibold text-sm">Link Quality</h3>
           {current.in_outage ? (
             <span className="flex items-center gap-1 text-xs text-error">
-              <Zap className="w-3 h-3" /> Retransmitting
+              <Zap className="w-3 h-3" /> Packet Loss
+            </span>
+          ) : current.in_recovery ? (
+            <span className="flex items-center gap-1 text-xs text-warning">
+              <Zap className="w-3 h-3" /> Recovering
             </span>
           ) : (
             <span className="flex items-center gap-1 text-xs text-success">
@@ -116,35 +119,30 @@ export function OutagePanel({ status }: { status?: StatusResponse | null }) {
       {/* Summary tiles */}
       <div className="grid grid-cols-5 gap-px bg-border/50">
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.uptime_pct >= 99 ? 'text-success' : summary.uptime_pct >= 95 ? 'text-warning' : 'text-error')}>
+          <div className={cn('text-xl font-bold', summary.uptime_pct >= 99.9 ? 'text-success' : summary.uptime_pct >= 99 ? 'text-warning' : 'text-error')}>
             {summary.uptime_pct.toFixed(1)}%
           </div>
           <div className="text-[10px] text-text-secondary">Uptime</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className="text-xl font-bold text-text-primary">{summary.total_outages}</div>
-          <div className="text-[10px] text-text-secondary">Outages</div>
+          <div className={cn('text-xl font-bold', summary.total_lost > 0 ? 'text-error' : 'text-text-primary')}>
+            {summary.total_lost}
+          </div>
+          <div className="text-[10px] text-error">Lost Packets</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className="text-xl font-bold text-text-primary">{formatDurationShort(summary.total_outage_seconds)}</div>
-          <div className="text-[10px] text-text-secondary">Total Down</div>
+          <div className={cn('text-xl font-bold', summary.total_outages > 0 ? 'text-error' : 'text-text-primary')}>
+            {summary.total_outages}
+          </div>
+          <div className="text-[10px] text-text-secondary">Loss Events</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className="text-xl font-bold text-text-primary">{summary.total_retrans}</div>
-          <div className="text-[10px] text-text-secondary">Retransmits</div>
+          <div className="text-xl font-bold text-warning">{summary.total_retrans}</div>
+          <div className="text-[10px] text-warning">Retransmits</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          {(() => {
-            const drops = (status?.gcs.l2tap_streams.soft_drops ?? 0) + (status?.gcs.l2tap_streams.hard_drops ?? 0);
-            return (
-              <>
-                <div className={cn('text-xl font-bold', drops > 0 ? 'text-error' : 'text-text-primary')}>
-                  {drops > 0 ? <Ban className="w-5 h-5 inline" /> : null} {drops}
-                </div>
-                <div className="text-[10px] text-text-secondary">Latency Drops</div>
-              </>
-            );
-          })()}
+          <div className="text-xl font-bold text-text-primary">{summary.total_recoveries ?? 0}</div>
+          <div className="text-[10px] text-text-secondary">Recoveries</div>
         </div>
       </div>
 
@@ -160,26 +158,32 @@ export function OutagePanel({ status }: { status?: StatusResponse | null }) {
       {/* Outage list */}
       {windowOutages.length > 0 && (
         <div className="border-t border-border">
-          <div className="px-4 py-2 text-xs text-text-secondary">Recent Outages</div>
+          <div className="px-4 py-2 text-xs text-text-secondary">Recent Events</div>
           <div className="max-h-32 overflow-y-auto">
-            {windowOutages.slice().reverse().map((o, i) => (
-              <div key={i} className="flex items-center justify-between px-4 py-1.5 text-xs border-t border-border/50">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-3 h-3 text-error flex-shrink-0" />
-                  <span className="text-text-secondary">
-                    {formatDistanceToNow(o.start * 1000, { addSuffix: true })}
-                  </span>
+            {windowOutages.slice().reverse().map((o, i) => {
+              const isLoss = o.type === 'loss';
+              return (
+                <div key={i} className="flex items-center justify-between px-4 py-1.5 text-xs border-t border-border/50">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className={cn('w-3 h-3 flex-shrink-0', isLoss ? 'text-error' : 'text-warning')} />
+                    <span className={cn('font-medium', isLoss ? 'text-error' : 'text-warning')}>
+                      {isLoss ? 'LOSS' : 'RECOVERY'}
+                    </span>
+                    <span className="text-text-secondary">
+                      {formatDistanceToNow(o.start * 1000, { addSuffix: true })}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-text-secondary">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {formatDurationShort(o.duration_seconds)}
+                    </span>
+                    <span className="text-warning">{o.retrans_count} retrans</span>
+                    {o.lost_count > 0 && <span className="text-error">{o.lost_count} lost</span>}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-text-secondary">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {formatDurationShort(o.duration_seconds)}
-                  </span>
-                  <span>{o.retrans_count} retrans</span>
-                  {o.lost_count > 0 && <span className="text-error">{o.lost_count} lost</span>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

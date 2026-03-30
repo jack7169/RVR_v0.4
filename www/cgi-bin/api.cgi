@@ -872,25 +872,23 @@ get_outages() {
         exit 0
     fi
 
-    # Parse SNMP CSV: detect retransmit bursts as outages
-    # CSV header: Unix,BytesSent,...,RetransSegs(17),FastRetransSegs(18),EarlyRetransSegs(19),LostSegs(20),...
+    # Parse SNMP CSV: separate actual loss (outages) from retransmits (recovery)
+    # Outage = LostSegs delta > 0 (permanent data loss, RED)
+    # Recovery = RetransSegs delta > 0 but no loss (KCP recovered, AMBER)
     awk -F',' '
     BEGIN {
-        outage_count = 0
-        total_outage_sec = 0
-        total_retrans = 0
-        total_lost = 0
-        in_outage = 0
-        quiet_count = 0
-        first_ts = 0
-        last_ts = 0
+        outage_count = 0; recovery_count = 0
+        total_outage_sec = 0; total_recovery_sec = 0
+        total_retrans = 0; total_lost = 0
+        in_outage = 0; in_recovery = 0
+        quiet_count = 0; rec_quiet = 0
+        first_ts = 0; last_ts = 0
         printf "{\"outages\":["
+        first_outage = 1
     }
     /^[0-9]/ {
         ts = $1
-        retrans = $17 + 0
-        fast_retrans = $18 + 0
-        early_retrans = $19 + 0
+        retrans = $17 + 0; fast_retrans = $18 + 0; early_retrans = $19 + 0
         lost = $20 + 0
 
         if (first_ts == 0) first_ts = ts
@@ -899,62 +897,63 @@ get_outages() {
         if (prev_ts > 0) {
             d_retrans = (retrans - prev_retrans) + (fast_retrans - prev_fast) + (early_retrans - prev_early)
             d_lost = lost - prev_lost
+            total_retrans += d_retrans
+            total_lost += d_lost
 
-            if (d_retrans > 0 || d_lost > 0) {
-                if (!in_outage) {
-                    in_outage = 1
-                    outage_start = prev_ts
-                    outage_retrans = 0
-                    outage_lost = 0
-                }
-                outage_retrans += d_retrans
-                outage_lost += d_lost
-                quiet_count = 0
+            # Track outages (actual loss only)
+            if (d_lost > 0) {
+                if (!in_outage) { in_outage = 1; outage_start = prev_ts; outage_retrans = 0; outage_lost = 0 }
+                outage_retrans += d_retrans; outage_lost += d_lost; quiet_count = 0
             } else if (in_outage) {
                 quiet_count++
                 if (quiet_count >= 2) {
-                    # Outage ended (10s quiet)
                     duration = prev_ts - outage_start
-                    if (outage_count > 0) printf ","
-                    printf "{\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
+                    if (!first_outage) printf ","
+                    printf "{\"type\":\"loss\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
                         outage_start, prev_ts, duration, outage_retrans, outage_lost
-                    total_outage_sec += duration
-                    total_retrans += outage_retrans
-                    total_lost += outage_lost
-                    outage_count++
-                    in_outage = 0
+                    total_outage_sec += duration; outage_count++; in_outage = 0; first_outage = 0
+                }
+            }
+
+            # Track recovery events (retransmits without loss)
+            if (d_retrans > 0 && d_lost == 0) {
+                if (!in_recovery) { in_recovery = 1; rec_start = prev_ts; rec_retrans = 0 }
+                rec_retrans += d_retrans; rec_quiet = 0
+            } else if (in_recovery) {
+                rec_quiet++
+                if (rec_quiet >= 2) {
+                    duration = prev_ts - rec_start
+                    if (!first_outage) printf ","
+                    printf "{\"type\":\"recovery\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":0}", \
+                        rec_start, prev_ts, duration, rec_retrans
+                    total_recovery_sec += duration; recovery_count++; in_recovery = 0; first_outage = 0
                 }
             }
         }
-
-        prev_ts = ts
-        prev_retrans = retrans
-        prev_fast = fast_retrans
-        prev_early = early_retrans
-        prev_lost = lost
-        last_retrans_rate = (prev_ts > 0 && ts > prev_ts) ? ((retrans - prev_retrans) / (ts - prev_ts)) : 0
+        prev_ts = ts; prev_retrans = retrans; prev_fast = fast_retrans; prev_early = early_retrans; prev_lost = lost
     }
     END {
-        # Close any open outage
         if (in_outage) {
             duration = last_ts - outage_start
-            if (outage_count > 0) printf ","
-            printf "{\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
+            if (!first_outage) printf ","
+            printf "{\"type\":\"loss\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":%d}", \
                 outage_start, last_ts, duration, outage_retrans, outage_lost
-            total_outage_sec += duration
-            total_retrans += outage_retrans
-            total_lost += outage_lost
-            outage_count++
+            total_outage_sec += duration; outage_count++
         }
-
+        if (in_recovery) {
+            duration = last_ts - rec_start
+            if (!first_outage && !in_outage) printf ","
+            printf "{\"type\":\"recovery\",\"start\":%d,\"end\":%d,\"duration_seconds\":%d,\"retrans_count\":%d,\"lost_count\":0}", \
+                rec_start, last_ts, duration, rec_retrans
+            total_recovery_sec += duration; recovery_count++
+        }
         total_sec = (last_ts > first_ts) ? (last_ts - first_ts) : 1
         uptime_pct = (total_sec > 0) ? ((total_sec - total_outage_sec) * 100.0 / total_sec) : 100
-        last_outage_ago = (in_outage) ? 0 : (last_ts - prev_ts)
 
-        printf "],\"summary\":{\"total_outages\":%d,\"total_outage_seconds\":%d,\"uptime_pct\":%.1f,\"total_retrans\":%d,\"total_lost\":%d,\"last_outage_ago\":%d},", \
-            outage_count, total_outage_sec, uptime_pct, total_retrans, total_lost, last_outage_ago
-        printf "\"current\":{\"in_outage\":%s,\"retrans_rate\":0}}\n", \
-            in_outage ? "true" : "false"
+        printf "],\"summary\":{\"total_outages\":%d,\"total_recoveries\":%d,\"total_outage_seconds\":%d,\"total_recovery_seconds\":%d,\"uptime_pct\":%.1f,\"total_retrans\":%d,\"total_lost\":%d},", \
+            outage_count, recovery_count, total_outage_sec, total_recovery_sec, uptime_pct, total_retrans, total_lost
+        printf "\"current\":{\"in_outage\":%s,\"in_recovery\":%s,\"retrans_rate\":0}}\n", \
+            in_outage ? "true" : "false", in_recovery ? "true" : "false"
     }
     ' "$snmp_log"
     exit 0

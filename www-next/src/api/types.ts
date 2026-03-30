@@ -176,6 +176,7 @@ export interface LinkSettings {
 }
 
 export interface OutageEvent {
+  type: 'loss' | 'recovery';
   start: number;
   end: number;
   duration_seconds: number;
@@ -187,14 +188,16 @@ export interface OutageResponse {
   outages: OutageEvent[];
   summary: {
     total_outages: number;
+    total_recoveries: number;
     total_outage_seconds: number;
+    total_recovery_seconds: number;
     uptime_pct: number;
     total_retrans: number;
     total_lost: number;
-    last_outage_ago: number;
   };
   current: {
     in_outage: boolean;
+    in_recovery: boolean;
     retrans_rate: number;
   };
 }

@@ -51,7 +51,7 @@ function formatChartRate(value: number): string {
 export function NetworkStats({ status }: Props) {
   const [window, setWindow] = useState<TimeWindow>(60);
   const [serverHistory, setServerHistory] = useState<DataPoint[]>([]);
-  const [serverWindow, setServerWindow] = useState<number>(0);
+  const [, setServerWindow] = useState<number>(0);
   const { getWindow, current } = useNetHistory(status);
   const { l2bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;

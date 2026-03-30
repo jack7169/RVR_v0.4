@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -50,36 +50,39 @@ function formatChartRate(value: number): string {
 
 export function NetworkStats({ status }: Props) {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
-  const [serverHistory, setServerHistory] = useState<DataPoint[]>([]);
+  const [allHistory, setAllHistory] = useState<DataPoint[]>([]);
+  const fetchedRef = useRef(false);
   const { getWindow, current } = useNetHistory(status);
   const { l2bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
-  // Always fetch server history — provides data from before page load
+  // Fetch full 6h server history ONCE on mount, then slice client-side
   useEffect(() => {
-    let cancelled = false;
-    fetchStatsHistory(timeWindow).then(res => {
-      if (cancelled) return;
-      setServerHistory(res.points.map(p => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetchStatsHistory(21600).then(res => {
+      setAllHistory(res.points.map(p => {
         const d = new Date(p.t);
         return {
           time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
           t: p.t, rx: p.rx, tx: p.tx, pkts: p.pkts,
         };
       }));
-    }).catch(() => { if (!cancelled) setServerHistory([]); });
-    return () => { cancelled = true; };
-  }, [timeWindow]);
+    }).catch(() => {});
+  }, []);
 
-  // Use server history when client buffer is sparse, merge for recent windows
+  // Slice from cached server history for the selected window — instant, no fetch
   const data = useMemo(() => {
     const clientData = getWindow(timeWindow);
-    // For short windows, prefer client data if we have enough (live updates)
-    // Otherwise use server history which has data from before page load
+    // Once client has enough live data, prefer it (live updates)
     if (clientData.length >= 3) return clientData;
-    if (serverHistory.length > 0) return serverHistory;
+    // Otherwise slice server history for the requested window
+    if (allHistory.length > 0) {
+      const cutoff = allHistory[allHistory.length - 1].t - timeWindow * 1000;
+      return allHistory.filter(p => p.t >= cutoff);
+    }
     return clientData;
-  }, [timeWindow, serverHistory, getWindow, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [timeWindow, allHistory, getWindow, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

@@ -86,8 +86,16 @@ static void handle_tap_read(struct l2tap_ctx *ctx)
                 }
 
                 if (stream_idx < 0) {
-                    LOG_DBG("no available stream for new flow, dropping frame");
-                    return;
+                    /* No free stream — use broadcast stream as fallback.
+                     * This ensures unicast replies (ARP, ICMP) aren't dropped
+                     * when the client hasn't opened a dedicated stream yet. */
+                    if (ctx->streams[0].state == STREAM_ACTIVE) {
+                        stream_idx = 0;
+                        LOG_DBG("no free stream for unicast, using broadcast stream 0");
+                    } else {
+                        LOG_DBG("no available stream, dropping frame");
+                        return;
+                    }
                 }
             }
 

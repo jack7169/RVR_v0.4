@@ -531,10 +531,9 @@ if [ -n "$ROLE" ]; then
     setup_git_repo
     install_l2bridge_cli
 
-    if [ -z "$NO_WEBUI" ] && [ "$ROLE" = "gcs" ]; then
-        printf "Install Web UI? [Y/n] "
-        read ans
-        case "$ans" in n|N) ;; *) l2bridge webui-install ;; esac
+    # Always install web UI — required for peer discovery endpoint
+    if [ -z "$NO_WEBUI" ]; then
+        l2bridge webui-install
     fi
 
     echo ""

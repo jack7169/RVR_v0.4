@@ -440,154 +440,169 @@ set_active_aircraft() {
 
 # ── Binding Management ──────────────────────────────────────────────
 
-# Discover all Tailscale peers and cross-reference with aircraft profiles
+# Detect the WireGuard interface used by the VPN
+detect_wg_interface() {
+    # Try common interface names
+    for iface in tailscale0 wg0 wg1; do
+        if ip link show "$iface" >/dev/null 2>&1; then
+            echo "$iface"
+            return
+        fi
+    done
+    # Fallback: find any interface with a 100.x.x.x address (VPN subnet)
+    ip -4 addr show | awk '/100\.[0-9]+\.[0-9]+\.[0-9]+/ { gsub(/.*dev /, ""); gsub(/ .*/, ""); print; exit }'
+}
+
+# Enumerate WireGuard peers with stats
+# Output: one line per peer: ip|last_handshake|rx_bytes|tx_bytes
+enumerate_wg_peers() {
+    local wg_iface
+    wg_iface=$(detect_wg_interface)
+    [ -z "$wg_iface" ] && return
+
+    # Try wg show (kernel WireGuard)
+    if command -v wg >/dev/null 2>&1 && wg show "$wg_iface" dump 2>/dev/null | grep -q .; then
+        wg show "$wg_iface" dump 2>/dev/null | tail -n +2 | while IFS='	' read -r _pubkey _psk _endpoint allowed_ips handshake rx tx _keepalive; do
+            # allowed_ips may have multiple CIDRs, extract the 100.x.x.x one
+            for cidr in $(echo "$allowed_ips" | tr ',' ' '); do
+                ip=$(echo "$cidr" | cut -d/ -f1)
+                case "$ip" in
+                    100.*) echo "$ip|$handshake|$rx|$tx"; break ;;
+                esac
+            done
+        done
+        return
+    fi
+
+    # Fallback: parse ip neigh for VPN interface
+    if [ -n "$wg_iface" ]; then
+        ip neigh show dev "$wg_iface" 2>/dev/null | awk '/100\./ { print $1"|0|0|0" }'
+        return
+    fi
+
+    # Last resort: check routing table for 100.x.x.x/32 routes
+    ip route show | awk '/^100\.[0-9.]+ dev/ { print $1"|0|0|0" }'
+}
+
+# Probe a peer's discovery endpoint, return JSON or empty
+probe_peer() {
+    local ip="$1"
+    wget -q -T 2 -O- "http://${ip}:8081/cgi-bin/discovery.cgi" 2>/dev/null || echo ""
+}
+
+# Discover all peers via WireGuard enumeration + HTTP probes
 discover_peers() {
     init_aircraft_file
 
-    local ts_json
-    ts_json=$(tailscale status --json 2>/dev/null)
-    [ -z "$ts_json" ] && json_error "Tailscale not available"
-
-    # Build a lookup of bound IPs from aircraft.json
-    local bound_ips=""
+    # Build bound IP lookup from aircraft.json
+    local bound_data=""
     if [ -f "$AIRCRAFT_FILE" ]; then
-        bound_ips=$(awk '/"tailscale_ip":/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print }' "$AIRCRAFT_FILE")
+        bound_data=$(awk '
+            /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ {
+                id=$0; sub(/^[^"]*"/, "", id); sub(/".*/, "", id)
+                if (id != "profiles") cur_id=id
+            }
+            cur_id && /"name":/ { n=$0; sub(/.*"name":[[:space:]]*"/, "", n); sub(/".*/, "", n); p_name[cur_id]=n }
+            cur_id && /"tailscale_ip":/ { n=$0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", n); sub(/".*/, "", n); p_ip[cur_id]=n }
+            cur_id && /"last_used":/ {
+                print p_ip[cur_id] "|" cur_id "|" p_name[cur_id]
+            }
+        ' "$AIRCRAFT_FILE")
     fi
 
-    # Parse with awk — extract Self and Peer entries
+    # Get self info
+    local self_hostname=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown")
+    local self_role="unknown"
+    [ -f /etc/init.d/kcptun-server ] && self_role="gcs"
+    [ -f /etc/init.d/kcptun-client ] && self_role="aircraft"
+    local self_gitver=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
+
+    # Enumerate WG peers and probe them
+    local tmp_peers="/tmp/l2bridge-discovery.$$"
+    enumerate_wg_peers > "$tmp_peers"
+
+    # Probe peers in parallel (background jobs, max 10)
+    local tmp_results="/tmp/l2bridge-discovery-results.$$"
+    : > "$tmp_results"
+    local job_count=0
+
+    while IFS='|' read -r ip handshake rx tx; do
+        [ -z "$ip" ] && continue
+        (
+            probe_json=$(probe_peer "$ip")
+            if [ -n "$probe_json" ]; then
+                # Extract fields from probe response
+                p_hostname=$(echo "$probe_json" | sed -n 's/.*"hostname"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                p_role=$(echo "$probe_json" | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                p_kcptun=$(echo "$probe_json" | sed -n 's/.*"kcptun"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                p_l2tap=$(echo "$probe_json" | sed -n 's/.*"l2tap"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                p_streams=$(echo "$probe_json" | sed -n 's/.*"l2tap_streams"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+                p_gitver=$(echo "$probe_json" | sed -n 's/.*"git_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                echo "$ip|$handshake|$rx|$tx|online|${p_hostname:-unknown}|${p_role:-unknown}|${p_kcptun:-unknown}|${p_l2tap:-unknown}|${p_streams:-0}|${p_gitver:-unknown}"
+            else
+                # Probe failed — check if WG handshake is recent (< 180s)
+                now=$(date +%s)
+                if [ "$handshake" -gt 0 ] 2>/dev/null && [ $((now - handshake)) -lt 180 ]; then
+                    echo "$ip|$handshake|$rx|$tx|stale|unknown|unknown|unknown|unknown|0|unknown"
+                else
+                    echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown"
+                fi
+            fi
+        ) >> "$tmp_results" &
+        job_count=$((job_count + 1))
+        [ $job_count -ge 10 ] && { wait; job_count=0; }
+    done < "$tmp_peers"
+    wait
+
+    # Build JSON response
     echo "Content-Type: application/json"
     echo ""
+    printf '{\n  "self": {\n'
+    printf '    "hostname": "%s",\n' "$self_hostname"
+    printf '    "ip": "",\n'
+    printf '    "role": "%s",\n' "$self_role"
+    printf '    "connection_mode": "online",\n'
+    printf '    "git_version": "%s",\n' "$self_gitver"
+    printf '    "is_self": true,\n'
+    printf '    "is_bound": false,\n'
+    printf '    "wg_rx_bytes": 0,\n'
+    printf '    "wg_tx_bytes": 0\n'
+    printf '  },\n  "peers": ['
 
-    echo "$ts_json" | awk -v aircraft_file="$AIRCRAFT_FILE" -v bound_list="$bound_ips" '
-    BEGIN {
-        split(bound_list, bound_arr, "\n")
-        for (i in bound_arr) bound[bound_arr[i]] = 1
-        in_self = 0; in_peer = 0; in_obj = 0; depth = 0
-        peer_count = 0; first_peer = 1
-        printf "{\n  \"self\": "
-    }
-
-    function get_val(line) {
-        gsub(/.*: *"?/, "", line)
-        gsub(/"? *,? *$/, "", line)
-        return line
-    }
-
-    function print_peer(is_self) {
-        if (!hostname) hostname = "unknown"
-        if (!ts_ip) ts_ip = ""
-        if (!os_val) os_val = ""
-        if (!dns_name) dns_name = ""
-
-        online_str = (online == "true") ? "true" : "false"
-        active_str = (active == "true") ? "true" : "false"
-
-        # Determine connection mode
-        mode = "offline"
-        relay_out = ""
-        if (online == "true") {
-            if (relay_val != "") {
-                mode = "relay"
-                relay_out = relay_val
-            } else if (curaddr != "" && curaddr != "\"\"") {
-                mode = "direct"
-            } else if (active == "true") {
-                mode = "idle"
-            } else {
-                mode = "idle"
-            }
-        }
+    local first=1
+    while IFS='|' read -r ip handshake rx tx mode hostname role kcptun l2tap streams gitver; do
+        [ -z "$ip" ] && continue
 
         # Check if bound
-        is_bound = "false"
-        bound_id = ""
-        bound_name = ""
-        if (ts_ip in bound) {
-            is_bound = "true"
-            # Extract profile info — simplified, just mark as bound
-        }
+        local is_bound="false"
+        local bound_id=""
+        local bound_name=""
+        echo "$bound_data" | while IFS='|' read -r bip bid bname; do
+            [ "$bip" = "$ip" ] && echo "$bid|$bname"
+        done | read bound_id bound_name 2>/dev/null
+        [ -n "$bound_id" ] && is_bound="true"
 
-        self_str = is_self ? "true" : "false"
+        [ $first -eq 0 ] && printf ','
+        printf '\n    {\n'
+        printf '      "hostname": "%s",\n' "${hostname:-unknown}"
+        printf '      "ip": "%s",\n' "$ip"
+        printf '      "role": "%s",\n' "${role:-unknown}"
+        printf '      "connection_mode": "%s",\n' "$mode"
+        printf '      "is_self": false,\n'
+        printf '      "is_bound": %s,\n' "$is_bound"
+        [ -n "$bound_id" ] && printf '      "bound_profile_id": "%s",\n' "$bound_id"
+        [ -n "$bound_name" ] && printf '      "bound_profile_name": "%s",\n' "$bound_name"
+        printf '      "git_version": "%s",\n' "${gitver:-unknown}"
+        printf '      "wg_rx_bytes": %s,\n' "${rx:-0}"
+        printf '      "wg_tx_bytes": %s,\n' "${tx:-0}"
+        printf '      "wg_last_handshake": %s\n' "${handshake:-0}"
+        printf '    }'
+        first=0
+    done < "$tmp_results"
 
-        printf "{\n"
-        printf "    \"hostname\": \"%s\",\n", hostname
-        printf "    \"dns_name\": \"%s\",\n", dns_name
-        printf "    \"tailscale_ip\": \"%s\",\n", ts_ip
-        printf "    \"os\": \"%s\",\n", os_val
-        printf "    \"online\": %s,\n", online_str
-        printf "    \"active\": %s,\n", active_str
-        printf "    \"connection_mode\": \"%s\",\n", mode
-        if (relay_out != "") printf "    \"relay_name\": \"%s\",\n", relay_out
-        printf "    \"rx_bytes\": %s,\n", (rx_bytes ? rx_bytes : "0")
-        printf "    \"tx_bytes\": %s,\n", (tx_bytes ? tx_bytes : "0")
-        if (last_handshake != "") printf "    \"last_handshake\": \"%s\",\n", last_handshake
-        if (last_seen != "") printf "    \"last_seen\": \"%s\",\n", last_seen
-        printf "    \"is_self\": %s,\n", self_str
-        printf "    \"is_bound\": %s\n", is_bound
-        printf "  }"
-    }
+    printf '\n  ]\n}\n'
 
-    function reset_fields() {
-        hostname = ""; dns_name = ""; ts_ip = ""; os_val = ""
-        online = "false"; active = "false"; curaddr = ""; relay_val = ""
-        rx_bytes = "0"; tx_bytes = "0"; last_handshake = ""; last_seen = ""
-    }
-
-    # Track Self object
-    /"Self":/ { in_self = 1; in_obj = 1; depth = 0; reset_fields(); next }
-
-    # Track Peer map
-    /"Peer":/ { in_peer = 1; next }
-
-    # Track individual peer objects within Peer map
-    in_peer && /^[[:space:]]*"n[^"]*":/ { in_obj = 1; depth = 0; reset_fields(); next }
-
-    in_obj {
-        if (/{/) depth++
-        if (/}/) {
-            depth--
-            if (depth <= 0) {
-                if (in_self) {
-                    print_peer(1)
-                    in_self = 0
-                    printf ",\n  \"peers\": ["
-                } else if (in_peer) {
-                    if (!first_peer) printf ","
-                    printf "\n    "
-                    print_peer(0)
-                    first_peer = 0
-                    peer_count++
-                }
-                in_obj = 0
-                next
-            }
-        }
-
-        if (/"HostName":/) hostname = get_val($0)
-        if (/"DNSName":/) dns_name = get_val($0)
-        if (/"OS":/) os_val = get_val($0)
-        if (/"Online":/) { online = ($0 ~ /true/) ? "true" : "false" }
-        if (/"Active":/) { active = ($0 ~ /true/) ? "true" : "false" }
-        if (/"CurAddr":/) curaddr = get_val($0)
-        if (/"Relay":/) relay_val = get_val($0)
-        if (/"RxBytes":/) rx_bytes = get_val($0)
-        if (/"TxBytes":/) tx_bytes = get_val($0)
-        if (/"LastHandshake":/) last_handshake = get_val($0)
-        if (/"LastSeen":/) last_seen = get_val($0)
-        if (/"TailscaleIPs":/) {
-            # Next line usually has the IPv4 address
-            getline
-            if (/100\./) {
-                ts_ip = get_val($0)
-                gsub(/["\[\]]/, "", ts_ip)
-            }
-        }
-    }
-
-    END {
-        printf "\n  ]\n}\n"
-    }
-    '
+    rm -f "$tmp_peers" "$tmp_results"
     exit 0
 }
 

@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import type { TailscalePeer, TailscaleDiscovery, AircraftProfiles, LinkSettings } from '../api/types';
+import type { DiscoveredPeer, PeerDiscovery, AircraftProfiles, LinkSettings } from '../api/types';
 import {
   discoverPeers, listAircraft, bindAircraft, unbindAircraft,
-  connectAircraft, setActiveAircraft, deleteAircraft,
+  connectAircraft, setActiveAircraft,
   getLinkSettings, updateLinkSettings,
 } from '../api/client';
-import { Card, StatusRow } from './ui/Card';
+import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
@@ -23,7 +23,7 @@ type Filter = 'all' | 'online' | 'unbound';
 function BindModal({
   peer, open, onClose, onSuccess,
 }: {
-  peer: TailscalePeer | null; open: boolean; onClose: () => void; onSuccess: () => void;
+  peer: DiscoveredPeer | null; open: boolean; onClose: () => void; onSuccess: () => void;
 }) {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -43,7 +43,7 @@ function BindModal({
     setLoading(true);
     setOutput('Starting setup...\n');
     try {
-      const res = await bindAircraft(peer.tailscale_ip, name, password);
+      const res = await bindAircraft(peer.ip, name, password);
       if (res.success) {
         setOutput(prev => prev + (res.output || 'Setup started in background.') + '\n');
         toast('Aircraft binding initiated', 'success');
@@ -67,7 +67,7 @@ function BindModal({
         <div>
           <label className="block text-sm text-text-secondary mb-1">Tailscale IP</label>
           <input
-            value={peer.tailscale_ip}
+            value={peer.ip}
             disabled
             className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm font-mono text-text-secondary"
           />
@@ -113,42 +113,53 @@ function BindModal({
 // ── Peer Card ─────────────────────────────────────────────────────────
 
 function PeerCard({
-  peer, onBind, onReconnect,
+  peer, selfVersion, onBind, onReconnect,
 }: {
-  peer: TailscalePeer; onBind: () => void; onReconnect: () => void;
+  peer: DiscoveredPeer; selfVersion?: string; onBind: () => void; onReconnect: () => void;
 }) {
-  const modeColor = peer.connection_mode === 'direct' ? 'text-success'
-    : peer.connection_mode === 'relay' ? 'text-warning'
+  const isOnline = peer.connection_mode === 'online';
+  const modeColor = isOnline ? 'text-success'
+    : peer.connection_mode === 'stale' ? 'text-warning'
     : 'text-text-secondary';
+  const versionMismatch = selfVersion && peer.git_version && peer.git_version !== 'unknown'
+    && selfVersion !== peer.git_version;
 
   return (
     <div className={cn(
       'bg-bg-card border rounded-xl p-4 flex flex-col gap-2',
       peer.is_self ? 'border-accent/30' : 'border-border',
+      versionMismatch && 'border-warning/40',
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={cn(
             'w-2.5 h-2.5 rounded-full',
-            peer.online ? 'bg-success' : 'bg-error/50',
+            isOnline ? 'bg-success' : peer.connection_mode === 'stale' ? 'bg-warning' : 'bg-error/50',
           )} />
           <span className="font-medium text-sm">{peer.hostname}</span>
           {peer.is_self && <Badge variant="info">This Device</Badge>}
         </div>
-        {peer.os && <span className="text-xs text-text-secondary">{peer.os}</span>}
+        {peer.role !== 'unknown' && (
+          <Badge variant={peer.role === 'gcs' ? 'info' : 'neutral'}>
+            {peer.role === 'gcs' ? 'GCS' : 'Aircraft'}
+          </Badge>
+        )}
       </div>
 
       <div className="flex items-center justify-between text-xs">
-        <span className="font-mono text-text-secondary">{peer.tailscale_ip}</span>
-        <span className={modeColor}>
-          {peer.connection_mode}
-          {peer.relay_name && ` (${peer.relay_name})`}
-        </span>
+        <span className="font-mono text-text-secondary">{peer.ip}</span>
+        <span className={modeColor}>{peer.connection_mode}</span>
       </div>
 
-      {(peer.rx_bytes > 0 || peer.tx_bytes > 0) && (
+      {versionMismatch && (
+        <div className="text-xs text-warning bg-warning/10 rounded px-2 py-1">
+          Version mismatch: {peer.git_version?.slice(0, 7)} (this device: {selfVersion?.slice(0, 7)})
+        </div>
+      )}
+
+      {(peer.wg_rx_bytes > 0 || peer.wg_tx_bytes > 0) && (
         <div className="text-xs text-text-secondary">
-          RX: {formatBytes(peer.rx_bytes)} / TX: {formatBytes(peer.tx_bytes)}
+          RX: {formatBytes(peer.wg_rx_bytes)} / TX: {formatBytes(peer.wg_tx_bytes)}
         </div>
       )}
 
@@ -314,10 +325,10 @@ function LinkSettingsPanel() {
 // ── Main Binding Manager ──────────────────────────────────────────────
 
 export function BindingManager({ onRefresh }: Props) {
-  const [discovery, setDiscovery] = useState<TailscaleDiscovery | null>(null);
+  const [discovery, setDiscovery] = useState<PeerDiscovery | null>(null);
   const [profiles, setProfiles] = useState<AircraftProfiles | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
-  const [bindPeer, setBindPeer] = useState<TailscalePeer | null>(null);
+  const [bindPeer, setBindPeer] = useState<DiscoveredPeer | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
@@ -415,7 +426,7 @@ export function BindingManager({ onRefresh }: Props) {
         {/* Self node */}
         {discovery?.self && (
           <div className="mb-3">
-            <PeerCard peer={discovery.self} onBind={() => {}} onReconnect={() => {}} />
+            <PeerCard peer={discovery.self} selfVersion={discovery.self.git_version} onBind={() => {}} onReconnect={() => {}} />
           </div>
         )}
 
@@ -423,8 +434,9 @@ export function BindingManager({ onRefresh }: Props) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filteredPeers.map(peer => (
             <PeerCard
-              key={peer.tailscale_ip}
+              key={peer.ip}
               peer={peer}
+              selfVersion={discovery?.self.git_version}
               onBind={() => setBindPeer(peer)}
               onReconnect={() => {
                 if (peer.bound_profile_id) handleReconnect(peer.bound_profile_id);
@@ -450,7 +462,7 @@ export function BindingManager({ onRefresh }: Props) {
           <div className="divide-y divide-border">
             {Object.entries(profiles.profiles).map(([id, profile]) => {
               const isActive = profiles.active === id;
-              const peer = discovery?.peers.find(p => p.tailscale_ip === profile.tailscale_ip);
+              const peer = discovery?.peers.find(p => p.ip === profile.tailscale_ip);
 
               return (
                 <div key={id} className={cn(

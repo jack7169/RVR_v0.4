@@ -1,6 +1,6 @@
 import type {
   StatusResponse, AircraftProfiles, CommandResponse,
-  FileListResponse, TailscaleDiscovery, LinkSettings,
+  FileListResponse, PeerDiscovery, LinkSettings,
 } from './types';
 
 const API_BASE = '/cgi-bin';
@@ -57,7 +57,7 @@ export async function setActiveAircraft(id: string): Promise<CommandResponse> {
 
 // ── Binding Management ────────────────────────────────────────────────
 
-export async function discoverPeers(): Promise<TailscaleDiscovery> {
+export async function discoverPeers(): Promise<PeerDiscovery> {
   const res = await fetch(`${API_BASE}/api.cgi?action=discover_peers`);
   if (!res.ok) throw new Error(`Discover peers failed: ${res.status}`);
   return res.json();

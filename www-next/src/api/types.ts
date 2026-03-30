@@ -137,28 +137,24 @@ export interface LogEntry {
 
 // ── Binding Management Types ──────────────────────────────────────────
 
-export interface TailscalePeer {
+export interface DiscoveredPeer {
   hostname: string;
-  dns_name: string;
-  tailscale_ip: string;
-  os: string;
-  online: boolean;
-  active: boolean;
-  connection_mode: 'direct' | 'relay' | 'idle' | 'offline';
-  relay_name?: string;
-  rx_bytes: number;
-  tx_bytes: number;
-  last_handshake?: string;
-  last_seen?: string;
+  ip: string;
+  role: 'gcs' | 'aircraft' | 'unknown';
+  connection_mode: 'online' | 'stale' | 'offline';
+  git_version?: string;
   is_self: boolean;
   is_bound: boolean;
   bound_profile_id?: string;
   bound_profile_name?: string;
+  wg_rx_bytes: number;
+  wg_tx_bytes: number;
+  wg_last_handshake: number;
 }
 
-export interface TailscaleDiscovery {
-  self: TailscalePeer;
-  peers: TailscalePeer[];
+export interface PeerDiscovery {
+  self: DiscoveredPeer;
+  peers: DiscoveredPeer[];
 }
 
 export interface LinkSettings {
@@ -178,14 +174,12 @@ export interface LinkSettings {
 export interface BindingDetail {
   profile_id: string;
   name: string;
-  tailscale_ip: string;
+  ip: string;
   created: string;
   last_used: string;
   status: 'connected' | 'disconnected' | 'unreachable';
-  connection_mode?: 'direct' | 'relay';
-  relay_name?: string;
   l2tap_streams?: number;
   l2tap_flows?: number;
-  tailscale_rx_bytes?: number;
-  tailscale_tx_bytes?: number;
+  wg_rx_bytes?: number;
+  wg_tx_bytes?: number;
 }

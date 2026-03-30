@@ -134,58 +134,32 @@ if [ -n "$AIRCRAFT_IP" ]; then
     fi
 fi
 
-# Get Tailscale peer connection info for aircraft
+# Get VPN peer connection info for aircraft (VPN-agnostic via WireGuard stats)
 TS_PEER_MODE="unknown"
 TS_PEER_RELAY=""
-TS_PEER_LATENCY=""
-TS_PEER_TX=""
-TS_PEER_RX=""
+TS_PEER_TX="0"
+TS_PEER_RX="0"
 
 if [ -n "$AIRCRAFT_IP" ]; then
-    # Parse tailscale status for the aircraft peer
-    TS_STATUS=$(tailscale status 2>/dev/null | grep "$AIRCRAFT_IP" | head -1)
-    if [ -n "$TS_STATUS" ]; then
-        # Check if connection is direct or relayed
-        # Direct connections show "direct" in the output
-        # Relayed connections show "relay" or DERP server name
-        if echo "$TS_STATUS" | grep -qi "direct"; then
-            TS_PEER_MODE="direct"
-        elif echo "$TS_STATUS" | grep -qiE "relay|derp"; then
-            TS_PEER_MODE="relay"
-            # Try to extract relay server name
-            TS_PEER_RELAY=$(echo "$TS_STATUS" | grep -oE 'relay "[^"]+"' | sed 's/relay "//;s/"//' || echo "")
-        elif echo "$TS_STATUS" | grep -qi "idle"; then
-            TS_PEER_MODE="idle"
-        else
-            # Check for active connection without explicit mode
-            if echo "$TS_STATUS" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+'; then
+    # Detect WG interface
+    WG_IFACE=""
+    for iface in tailscale0 wg0 wg1; do
+        ip link show "$iface" >/dev/null 2>&1 && { WG_IFACE="$iface"; break; }
+    done
+    [ -z "$WG_IFACE" ] && WG_IFACE=$(ip -4 addr show | awk '/100\.[0-9]+\.[0-9]+\.[0-9]+/ { gsub(/.*dev /, ""); gsub(/ .*/, ""); print; exit }')
+
+    # Parse WG stats for this peer
+    if command -v wg >/dev/null 2>&1 && [ -n "$WG_IFACE" ]; then
+        WG_PEER_LINE=$(wg show "$WG_IFACE" dump 2>/dev/null | awk -v ip="$AIRCRAFT_IP" '$4 ~ ip {print}')
+        if [ -n "$WG_PEER_LINE" ]; then
+            WG_HANDSHAKE=$(echo "$WG_PEER_LINE" | awk -F'	' '{print $5}')
+            TS_PEER_RX=$(echo "$WG_PEER_LINE" | awk -F'	' '{print $6}')
+            TS_PEER_TX=$(echo "$WG_PEER_LINE" | awk -F'	' '{print $7}')
+            NOW=$(date +%s)
+            if [ "$WG_HANDSHAKE" -gt 0 ] 2>/dev/null && [ $((NOW - WG_HANDSHAKE)) -lt 180 ]; then
                 TS_PEER_MODE="direct"
-            fi
-        fi
-    fi
-
-    # Try to get more detailed info from tailscale status --json if available
-    if command -v jq >/dev/null 2>&1; then
-        TS_JSON=$(tailscale status --json 2>/dev/null)
-        if [ -n "$TS_JSON" ]; then
-            # Extract peer info for aircraft IP
-            PEER_INFO=$(echo "$TS_JSON" | jq -r --arg ip "$AIRCRAFT_IP" '.Peer | to_entries[] | select(.value.TailscaleIPs[]? == $ip) | .value' 2>/dev/null)
-            if [ -n "$PEER_INFO" ]; then
-                # Check CurAddr - if it contains the real IP, it's direct; if DERP, it's relayed
-                CUR_ADDR=$(echo "$PEER_INFO" | jq -r '.CurAddr // ""' 2>/dev/null)
-                if [ -n "$CUR_ADDR" ]; then
-                    if echo "$CUR_ADDR" | grep -q "^derp"; then
-                        TS_PEER_MODE="relay"
-                        TS_PEER_RELAY=$(echo "$CUR_ADDR" | sed 's/derp-//' | cut -d: -f1)
-                    else
-                        TS_PEER_MODE="direct"
-                    fi
-                fi
-
-                # Get latency and transfer stats if available
-                TS_PEER_LATENCY=$(echo "$PEER_INFO" | jq -r '.LastSeen // ""' 2>/dev/null)
-                TS_PEER_RX=$(echo "$PEER_INFO" | jq -r '.RxBytes // 0' 2>/dev/null)
-                TS_PEER_TX=$(echo "$PEER_INFO" | jq -r '.TxBytes // 0' 2>/dev/null)
+            else
+                TS_PEER_MODE="idle"
             fi
         fi
     fi

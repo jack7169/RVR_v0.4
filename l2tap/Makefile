@@ -2,7 +2,7 @@ CC      ?= gcc
 CFLAGS   = -Wall -Wextra -Werror -O2 -std=c11 -Iinclude
 LDFLAGS  = -static
 
-CROSS_CC = aarch64-linux-musl-gcc
+CROSS_CC ?= aarch64-linux-gnu-gcc
 
 SRCS = $(wildcard src/*.c)
 OBJS = $(SRCS:src/%.c=src/%.o)

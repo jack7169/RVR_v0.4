@@ -23,6 +23,8 @@ export interface StatusResponse {
       tap_rx_bytes: number;
       tap_tx_frames: number;
       tap_tx_bytes: number;
+      soft_drops: number;
+      hard_drops: number;
     };
     watchdog: 'active' | 'inactive';
     health: {

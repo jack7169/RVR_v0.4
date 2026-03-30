@@ -55,7 +55,7 @@ export default function App() {
             </Suspense>
 
             <Suspense fallback={<Skeleton height="h-48" />}>
-              <OutagePanel />
+              <OutagePanel status={status} />
             </Suspense>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

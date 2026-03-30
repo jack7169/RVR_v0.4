@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Clock, Shield, Zap } from 'lucide-react';
+import { AlertTriangle, Clock, Shield, Zap, Ban } from 'lucide-react';
 import { fetchOutages } from '../api/client';
-import type { OutageResponse, OutageEvent } from '../api/types';
+import type { OutageResponse, OutageEvent, StatusResponse } from '../api/types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
 
@@ -53,7 +53,7 @@ function OutageTimeline({ outages, windowSeconds }: { outages: OutageEvent[]; wi
 
 type TimeWindow = 3600 | 21600 | 86400;
 
-export function OutagePanel() {
+export function OutagePanel({ status }: { status?: StatusResponse | null }) {
   const [data, setData] = useState<OutageResponse | null>(null);
   const [window, setWindow] = useState<TimeWindow>(3600);
 
@@ -114,7 +114,7 @@ export function OutagePanel() {
       </div>
 
       {/* Summary tiles */}
-      <div className="grid grid-cols-4 gap-px bg-border/50">
+      <div className="grid grid-cols-5 gap-px bg-border/50">
         <div className="bg-bg-card p-3 text-center">
           <div className={cn('text-xl font-bold', summary.uptime_pct >= 99 ? 'text-success' : summary.uptime_pct >= 95 ? 'text-warning' : 'text-error')}>
             {summary.uptime_pct.toFixed(1)}%
@@ -132,6 +132,19 @@ export function OutagePanel() {
         <div className="bg-bg-card p-3 text-center">
           <div className="text-xl font-bold text-text-primary">{summary.total_retrans}</div>
           <div className="text-[10px] text-text-secondary">Retransmits</div>
+        </div>
+        <div className="bg-bg-card p-3 text-center">
+          {(() => {
+            const drops = (status?.gcs.l2tap_streams.soft_drops ?? 0) + (status?.gcs.l2tap_streams.hard_drops ?? 0);
+            return (
+              <>
+                <div className={cn('text-xl font-bold', drops > 0 ? 'text-error' : 'text-text-primary')}>
+                  {drops > 0 ? <Ban className="w-5 h-5 inline" /> : null} {drops}
+                </div>
+                <div className="text-[10px] text-text-secondary">Latency Drops</div>
+              </>
+            );
+          })()}
         </div>
       </div>
 

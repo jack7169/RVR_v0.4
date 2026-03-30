@@ -4,10 +4,13 @@ Multi-stream Layer 2 bridge for BVLOS remotely piloted aircraft over Starlink sa
 
 ## What's New in v0.4
 
-- **l2tap proxy** replaces tinc — per-flow multi-stream tunneling eliminates head-of-line blocking
-- **Binding Management UI** — discover Tailscale peers, one-click aircraft binding, link settings editor
-- **No more CLI-only aircraft management** — add/swap/remove aircraft from the web UI
-- **KCPtun link tuning** — presets (Starlink Optimized, Low Latency, High Throughput) configurable from UI
+- **l2tap proxy** replaces tinc — per-flow multi-stream tunneling eliminates head-of-line blocking (up to 128 streams)
+- **Web UI with binding management** — discover VPN peers, one-click aircraft binding with real-time setup logs
+- **VPN-agnostic peer discovery** — WireGuard peer enumeration + HTTP probes, works on Tailscale/Headscale/raw WG
+- **Network charts** — recharts area charts with server-side 6h history, instant time window switching
+- **Link tuning** — KCPtun parameter editor with Starlink Optimized preset and detailed per-field help
+- **Built-in documentation** — Help tab with quick start guide, link tuning reference, troubleshooting
+- **Modern UI stack** — React 19, Radix UI, Sonner toasts, lucide icons, lazy loading with code splitting
 
 ## Architecture
 
@@ -30,8 +33,8 @@ Ground Control Station (GCS)                          Aircraft
 │     └───┬───┘               │                      │     └───┬───┘               │
 │         │ KCP/UDP           │                      │         │ KCP/UDP           │
 │     ┌───┴───┐               │                      │     ┌───┴───┐               │
-│     │  Tail │               │    Starlink Link     │     │  Tail │               │
-│     │ scale │◄──────────────┼────────────────────►─┼─────│ scale │               │
+│     │  VPN  │               │    Starlink Link     │     │  VPN  │               │
+│     │(WG)   │◄──────────────┼────────────────────►─┼─────│(WG)   │               │
 │     └───────┘  WireGuard    │                      │     └───────┘               │
 └─────────────────────────────┘                      └─────────────────────────────┘
 ```
@@ -42,16 +45,17 @@ Ground Control Station (GCS)                          Aircraft
 2. Each frame is classified by its src+dst MAC pair (asymmetric — each direction is a separate flow)
 3. Each unique flow gets its own TCP connection to kcptun
 4. **kcptun** multiplexes each TCP connection as a separate smux v2 stream over a single KCP/UDP tunnel
-5. **Tailscale** provides the WireGuard-encrypted path between GCS and Aircraft over Starlink
+5. The **VPN** (Tailscale, Headscale, or raw WireGuard) provides the encrypted path over Starlink
 
 This eliminates head-of-line blocking: a stalled video stream from one camera cannot block MAVLink telemetry or traffic from other devices.
 
 ### Key Properties
 
 - **Per-flow ordering guaranteed**: Each direction between two devices has its own stream with TCP ordering
-- **Dynamic scaling**: Streams created on demand, up to 32, with 300s idle timeout
+- **Dynamic scaling**: Streams created on demand, up to 128, with 300s idle timeout
 - **Broadcast isolation**: Multicast/broadcast traffic uses a dedicated stream (stream 0)
 - **Starlink-optimized**: KCP ARQ tuned for 100-500ms periodic drops (resend=4, interval=20ms)
+- **VPN-agnostic**: Works on Tailscale, Headscale, or raw WireGuard — no provider-specific APIs
 
 ## Quick Start
 
@@ -65,57 +69,66 @@ curl -fsSL https://raw.githubusercontent.com/jack7169/RVR_v0.4/main/install.sh |
 curl -fsSL https://raw.githubusercontent.com/jack7169/RVR_v0.4/main/install.sh | sh -s -- --role aircraft
 ```
 
-### Setup Bridge (CLI)
-```bash
-l2bridge setup <aircraft_tailscale_ip> <aircraft_name>
-```
+### Bind Aircraft (Web UI)
+1. Open `http://<gcs-ip>:8081` (web UI installed automatically)
+2. Go to **Binding** tab
+3. Find aircraft in **Network Discovery** (auto-discovered via WireGuard)
+4. Click **Bind** → enter name → SSH password if needed → setup runs automatically
+5. Real-time setup log streams in the modal
 
-### Setup Bridge (Web UI)
-1. Install web UI: `l2bridge webui-install`
-2. Open `http://<router-ip>:8081`
-3. Go to **Binding** tab
-4. Find aircraft in **Network Discovery**, click **Bind**
-5. Enter name and SSH password — setup runs automatically
+### Bind Aircraft (CLI)
+```bash
+l2bridge setup <aircraft_ip> <aircraft_name>
+```
 
 ## Web UI
 
-The control panel runs on port 8081 and has two tabs:
+The control panel runs on port 8081 with three tabs:
 
 ### Dashboard
-- GCS and Aircraft service status
-- L2TAP stream/flow counts
-- Network statistics with live rates
-- Bridge controls (start/stop/restart)
-- Packet capture and log viewer
+- Connection status with uptime timer
+- GCS and Aircraft service status with lucide icons
+- Network statistics with recharts area charts (15s / 1m / 5m / 15m / 1h / 6h)
+- Server-side stats history (6h rolling buffer, available immediately on page load)
+- Bridge controls (start/stop/restart) with icon buttons
+- Packet capture with duration control
+- Live log viewer with level filters, search, fullscreen expand, copy
+- File manager with relative timestamps and download/delete
 
 ### Binding
-- **Network Discovery** — auto-discovers all Tailscale peers, shows hostname, IP, online status, connection mode (direct/relay)
-- **Bound Aircraft** — manage profiles, activate, connect, remove
-- **Link Settings** — edit KCPtun parameters with presets, push to both sides, restart
+- **Network Discovery** — auto-discovers VPN peers via WireGuard + HTTP probes
+- **Bound Aircraft** — manage profiles with activate/connect/remove
+- **Link Settings** — KCPtun parameter editor with detailed hover help and Starlink preset
+- **Add Peer** — manually enter IPs for devices not auto-discovered
+- Version mismatch warnings between GCS and aircraft
+
+### Help
+- **Quick Start** — step-by-step install, bind, verify, switch aircraft
+- **Link Tuning** — ARQ parameters, buffering, Starlink rationale, when to adjust
+- **Troubleshooting** — bridge not forwarding, streams stuck, SSH errors, latency issues
+
+## Tech Stack
+
+### Frontend
+React 19, Vite 8, Tailwind CSS 4, TypeScript 5.9, recharts, @tanstack/react-query, @radix-ui (dialog/tabs/tooltip), sonner, lucide-react, date-fns, react-hook-form + zod
+
+### Backend
+POSIX sh CGI scripts on uhttpd (OpenWrt), l2tap C proxy (epoll, static musl binary)
+
+### CI
+GitHub Actions: Node 22 for web UI build, aarch64-linux-gnu-gcc for l2tap cross-compile
 
 ## Requirements
 
 - OpenWrt 23.05+ on aarch64 (tested: GL.iNet GL-BE3600, GL-A1300)
-- Tailscale installed and authenticated on both routers
+- WireGuard-based VPN (Tailscale, Headscale, or raw WireGuard)
 - Starlink or other WAN connectivity
-
-## Components
-
-| Component | Description |
-|-----------|-------------|
-| `l2tap` | C proxy — TAP to multi-stream TCP fan-out (~50KB static musl binary) |
-| `kcptun` | KCP/UDP reliable transport with smux v2 multiplexing |
-| `l2bridge` | POSIX sh CLI for setup, management, and monitoring |
-| `www-next/` | React 19 + Vite + Tailwind web UI source |
-| `www/` | Built web UI (committed by CI, served via uhttpd) |
-| `www/cgi-bin/` | Shell CGI backend (status, API, log streaming) |
-| `packages/` | Bundled .ipk files + l2tap binary for offline install |
 
 ## Project Structure
 
 ```
 RVR_v0.4/
-├── l2tap/                  # C proxy source
+├── l2tap/                  # C proxy source (epoll, 128 max streams)
 │   ├── include/l2tap.h     # Constants, structs, prototypes
 │   ├── src/                # main, tap, frame, flow, stream, loop, log
 │   └── Makefile            # Host + aarch64 cross-compile
@@ -123,66 +136,29 @@ RVR_v0.4/
 ├── install.sh              # Bootstrap installer for OpenWrt
 ├── www-next/               # React UI source (built by CI)
 │   └── src/
-│       ├── components/     # Dashboard, BindingManager, status cards, controls
+│       ├── components/     # Dashboard, BindingManager, NetworkStats, LogViewer, HelpPage
 │       ├── api/            # TypeScript API client + types
-│       └── hooks/          # useStatus, useRates, useLogStream
+│       ├── hooks/          # useStatus (React Query), useNetHistory, useLogStream
+│       └── lib/            # utils, zod schemas
 ├── www/                    # Built UI + CGI backend (deployed to device)
-│   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi
-│   └── assets/             # Built JS/CSS (committed by CI)
+│   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi, discovery.cgi
+│   └── assets/             # Code-split JS/CSS chunks (committed by CI)
 ├── packages/               # Offline .ipk bundle + l2tap binary
-│   ├── common/             # Shared deps + l2tap-aarch64
-│   ├── gcs/                # kcptun-server, sshpass
-│   └── aircraft/           # kcptun-client
 └── .github/workflows/      # CI: build-l2tap.yml, build-ui.yml
 ```
 
 ## CI / Build
 
-The web UI and l2tap binary are built by GitHub Actions — not on the device.
-
 | Workflow | Trigger | Output |
 |----------|---------|--------|
-| **Build Web UI** | Push to `www-next/**` | Commits built assets to `www/` |
-| **Build l2tap** | Push to `l2tap/**` | Commits `packages/common/l2tap-aarch64` |
-
-Both workflows support `workflow_dispatch` for manual triggering.
+| **Build Web UI** | Push to `www-next/**` | Code-split chunks to `www/assets/` |
+| **Build l2tap** | Push to `l2tap/**` | `packages/common/l2tap-aarch64` |
 
 ### Local Development
 ```bash
-# Web UI dev server (proxies CGI to router)
-cd www-next && npm ci && npm run dev
-
-# Build l2tap for host (testing)
-cd l2tap && make
-
-# Cross-compile l2tap for aarch64
-cd l2tap && make cross  # requires aarch64-linux-musl-gcc
-```
-
-## CLI Reference
-
-```
-l2bridge <command> [options]
-
-Setup & Connection:
-  setup <ip> <name>         Full setup of GCS + Aircraft
-  add <ip|name> [name]      Connect to already-setup aircraft
-  start/stop/restart        Service management
-  status                    Local bridge status
-  remote <ip|name>          Aircraft status via SSH
-
-Monitoring:
-  logs [lines]              Recent logs (default: 20)
-  debug <ip|name>           Full diagnostics
-  capture [duration]        Packet capture (default: 60s)
-  monitor [--daemon]        Health check and auto-repair
-
-Management:
-  webui-install/remove      Web UI on port 8081
-  watchdog-install/remove   Cron-based auto-recovery
-  remove-aircraft <name>    Uninstall from aircraft
-  uninstall [ip]            Remove everything
-  update                    Pull latest from GitHub
+cd www-next && npm ci && npm run dev   # UI dev server (proxies CGI to router)
+cd l2tap && make                        # Host build (testing)
+cd l2tap && make cross                  # aarch64 cross-compile
 ```
 
 ## License

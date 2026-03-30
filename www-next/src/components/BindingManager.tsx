@@ -18,13 +18,16 @@ interface Props {
 
 type Filter = 'all' | 'online' | 'unbound';
 
-// ── Bind Modal ────────────────────────────────────────────────────────
+// ── Bind Modal (Multi-Step) ────────────────────────────────────────────
+
+type BindStep = 'name' | 'password' | 'running';
 
 function BindModal({
   peer, open, onClose, onSuccess,
 }: {
   peer: DiscoveredPeer | null; open: boolean; onClose: () => void; onSuccess: () => void;
 }) {
+  const [step, setStep] = useState<BindStep>('name');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,27 +35,34 @@ function BindModal({
   const { toast } = useToast();
 
   useEffect(() => {
-    if (peer) setName(peer.hostname);
+    if (peer) {
+      setName(peer.hostname);
+      setStep('name');
+      setPassword('');
+      setOutput('');
+      setLoading(false);
+    }
   }, [peer]);
 
-  const handleBind = async () => {
-    if (!peer || !name || !password) {
-      toast('Name and SSH password are required', 'error');
-      return;
-    }
+  const handleNext = () => {
+    if (!name.trim()) { toast('Aircraft name is required', 'error'); return; }
+    setStep('password');
+  };
+
+  const startSetup = async (pass: string) => {
+    if (!peer) return;
+    setStep('running');
     setLoading(true);
-    setOutput('Starting full setup (packages, config, services)...\n');
+    setOutput('Starting full setup...\n');
     try {
-      const res = await bindAircraft(peer.ip, name, password);
+      const res = await bindAircraft(peer.ip, name, pass);
       if (res.success) {
-        setOutput(prev => prev + (res.output || res.message || 'Setup running...') + '\n');
-        toast('Setup started — this takes ~2 minutes', 'info');
-        // Poll setup log for progress
+        setOutput('Setup started — installing packages, configuring bridge...\n');
         const pollLog = setInterval(async () => {
           try {
             const logRes = await fetch('/cgi-bin/api.cgi?action=setup_log');
             if (logRes.ok) {
-              const data = await logRes.json();
+              const data = await logRes.json() as { log?: string };
               if (data.log) setOutput(data.log);
               if (data.log?.includes('[BIND COMPLETE]')) {
                 clearInterval(pollLog);
@@ -60,7 +70,7 @@ function BindModal({
                 if (data.log.includes('exit_code=0')) {
                   toast('Aircraft bound successfully!', 'success');
                 } else {
-                  toast('Setup finished with errors — check log', 'error');
+                  toast('Setup finished with errors', 'error');
                 }
                 onSuccess();
               }
@@ -68,7 +78,7 @@ function BindModal({
           } catch { /* ignore poll errors */ }
         }, 3000);
       } else {
-        setOutput(prev => prev + 'ERROR: ' + (res.error || 'Setup failed') + '\n');
+        setOutput('ERROR: ' + (res.error || 'Setup failed') + '\n');
         toast(res.error || 'Bind failed', 'error');
         setLoading(false);
       }
@@ -80,50 +90,102 @@ function BindModal({
 
   if (!peer) return null;
 
+  const stepTitle = step === 'name' ? `Bind ${peer.hostname} — Name`
+    : step === 'password' ? `Bind ${name} — Authentication`
+    : `Setting up ${name}...`;
+
   return (
-    <Modal open={open} onClose={onClose} title={`Bind ${peer.hostname}`} wide>
+    <Modal open={open} onClose={loading ? undefined : onClose} title={stepTitle} wide>
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm text-text-secondary mb-1">VPN IP</label>
-          <input
-            value={peer.ip}
-            disabled
-            className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm font-mono text-text-secondary"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-text-secondary mb-1">Aircraft Name</label>
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="e.g. Aircraft Alpha"
-            className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-text-secondary mb-1">SSH Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Root password for initial SSH key setup"
-            className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
-          />
-          <p className="text-xs text-text-secondary mt-1">Required for first-time setup. Stored for future reconnects.</p>
+        {/* Step indicator */}
+        <div className="flex gap-1">
+          {(['name', 'password', 'running'] as const).map((s, i) => (
+            <div key={s} className={cn(
+              'h-1 flex-1 rounded-full',
+              i <= ['name', 'password', 'running'].indexOf(step) ? 'bg-accent' : 'bg-border/30',
+            )} />
+          ))}
         </div>
 
-        {output && (
-          <pre className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-48 overflow-y-auto whitespace-pre-wrap">
-            {output}
-          </pre>
+        {step === 'name' && (
+          <>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">VPN IP</label>
+              <div className="font-mono text-sm text-text-primary bg-bg-primary border border-border rounded-lg px-3 py-2">
+                {peer.ip}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">Aircraft Name</label>
+              <input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Aircraft Alpha"
+                autoFocus
+                className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
+                onKeyDown={e => e.key === 'Enter' && handleNext()}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" onClick={handleNext}>Next</Button>
+            </div>
+          </>
         )}
 
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleBind} loading={loading}>
-            Bind Aircraft
-          </Button>
-        </div>
+        {step === 'password' && (
+          <>
+            <p className="text-sm text-text-secondary">
+              SSH key authentication is needed to configure <strong>{name}</strong> ({peer.ip}).
+              Enter the root password if this is the first time connecting, or skip if SSH keys are already installed.
+            </p>
+            <div>
+              <label className="block text-sm text-text-secondary mb-1">SSH Root Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Root password"
+                autoFocus
+                className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
+                onKeyDown={e => e.key === 'Enter' && startSetup(password)}
+              />
+              <p className="text-xs text-text-secondary mt-1">
+                Stored securely for future reconnects. Only used once to install SSH keys.
+              </p>
+            </div>
+            <div className="flex justify-between">
+              <Button variant="ghost" onClick={() => setStep('name')}>Back</Button>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={() => startSetup('')}>
+                  Skip (keys installed)
+                </Button>
+                <Button variant="primary" onClick={() => startSetup(password)}>
+                  Start Setup
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {step === 'running' && (
+          <>
+            <pre className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-64 overflow-y-auto whitespace-pre-wrap">
+              {output || 'Initializing...'}
+            </pre>
+            {!loading && (
+              <div className="flex justify-end">
+                <Button variant="ghost" onClick={onClose}>Close</Button>
+              </div>
+            )}
+            {loading && (
+              <div className="flex items-center gap-2 text-sm text-text-secondary">
+                <span className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-[spin_0.8s_linear_infinite]" />
+                Setup in progress — this takes ~2 minutes
+              </div>
+            )}
+          </>
+        )}
       </div>
     </Modal>
   );

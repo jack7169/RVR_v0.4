@@ -1,5 +1,6 @@
 export interface StatusResponse {
   timestamp: string;
+  role: 'gcs' | 'aircraft' | 'unknown';
   gcs: {
     tailscale_ip: string;
     tailscale_status: 'connected' | 'disconnected';

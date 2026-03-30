@@ -23,11 +23,12 @@ interface Props {
 }
 
 export function AircraftStatusCard({ status }: Props) {
-  const { aircraft } = status;
+  const { aircraft, role } = status;
+  const title = role === 'aircraft' ? 'Remote Status (GCS)' : 'Remote Status (Aircraft)';
 
   return (
     <Card
-      title="Aircraft Status"
+      title={title}
       badge={<Badge variant={aircraft.reachable ? 'success' : 'error'}>{aircraft.reachable ? 'Reachable' : 'Unreachable'}</Badge>}
     >
       <StatusRow label={<IconLabel icon={Plane} label="Profile" />}>{aircraft.profile_name || 'None'}</StatusRow>

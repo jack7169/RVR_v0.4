@@ -33,9 +33,20 @@ if ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1; then
     INTERNET_STATUS="connected"
 fi
 
-# Check local services
+# Detect local role
+LOCAL_ROLE="unknown"
+[ -f /etc/init.d/kcptun-server ] && LOCAL_ROLE="gcs"
+[ -f /etc/init.d/kcptun-client ] && LOCAL_ROLE="aircraft"
+
+# Check local services (role-aware)
 KCPTUN_STATUS="stopped"
-pgrep -f kcptun-server >/dev/null 2>&1 && KCPTUN_STATUS="running"
+if [ "$LOCAL_ROLE" = "gcs" ]; then
+    pgrep -f kcptun-server >/dev/null 2>&1 && KCPTUN_STATUS="running"
+elif [ "$LOCAL_ROLE" = "aircraft" ]; then
+    pgrep -f kcptun-client >/dev/null 2>&1 && KCPTUN_STATUS="running"
+else
+    pgrep -f kcptun >/dev/null 2>&1 && KCPTUN_STATUS="running"
+fi
 
 L2TAP_STATUS="stopped"
 pgrep l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
@@ -370,6 +381,7 @@ fi
 cat << EOF
 {
   "timestamp": "$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')",
+  "role": "$LOCAL_ROLE",
   "gcs": {
     "tailscale_ip": "${GCS_TS_IP:-}",
     "tailscale_status": "$GCS_TS_STATUS",

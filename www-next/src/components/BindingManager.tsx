@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import type { DiscoveredPeer, PeerDiscovery, AircraftProfiles, LinkSettings } from '../api/types';
 import {
   discoverPeers, listAircraft, bindAircraft, unbindAircraft,
@@ -18,173 +18,162 @@ interface Props {
 
 type Filter = 'all' | 'online' | 'unbound';
 
-// ── Bind Modal (Multi-Step) ────────────────────────────────────────────
-
-type BindStep = 'name' | 'password' | 'running';
+// ── Bind Modal ────────────────────────────────────────────────────────
 
 function BindModal({
   peer, open, onClose, onSuccess,
 }: {
   peer: DiscoveredPeer | null; open: boolean; onClose: () => void; onSuccess: () => void;
 }) {
-  const [step, setStep] = useState<BindStep>('name');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [running, setRunning] = useState(false);
   const [output, setOutput] = useState('');
   const { toast } = useToast();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (peer) {
       setName(peer.hostname);
-      setStep('name');
       setPassword('');
+      setNeedsPassword(false);
+      setRunning(false);
       setOutput('');
-      setLoading(false);
+      if (pollRef.current) clearInterval(pollRef.current);
     }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [peer]);
 
-  const handleNext = () => {
-    if (!name.trim()) { toast('Aircraft name is required', 'error'); return; }
-    setStep('password');
+  const startPolling = () => {
+    pollRef.current = setInterval(async () => {
+      try {
+        const logRes = await fetch('/cgi-bin/api.cgi?action=setup_log');
+        if (!logRes.ok) return;
+        const data = await logRes.json() as { log?: string };
+        if (data.log) setOutput(data.log);
+        if (data.log?.includes('[BIND COMPLETE]')) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setRunning(false);
+          if (data.log.includes('exit_code=0')) {
+            toast('Aircraft bound successfully!', 'success');
+          } else {
+            toast('Setup finished with errors', 'error');
+          }
+          onSuccess();
+        }
+      } catch { /* ignore */ }
+    }, 3000);
   };
 
-  const startSetup = async (pass: string) => {
-    if (!peer) return;
-    setStep('running');
-    setLoading(true);
-    setOutput('Starting full setup...\n');
+  const handleBind = async (pass?: string) => {
+    if (!peer || !name.trim()) { toast('Aircraft name is required', 'error'); return; }
+    setRunning(true);
+    setNeedsPassword(false);
+    setOutput('Connecting to ' + peer.ip + '...\n');
     try {
-      const res = await bindAircraft(peer.ip, name, pass);
+      const res = await bindAircraft(peer.ip, name, pass || password);
+      if (res.needs_password) {
+        setRunning(false);
+        setNeedsPassword(true);
+        setOutput('');
+        return;
+      }
       if (res.success) {
-        setOutput('Setup started — installing packages, configuring bridge...\n');
-        const pollLog = setInterval(async () => {
-          try {
-            const logRes = await fetch('/cgi-bin/api.cgi?action=setup_log');
-            if (logRes.ok) {
-              const data = await logRes.json() as { log?: string };
-              if (data.log) setOutput(data.log);
-              if (data.log?.includes('[BIND COMPLETE]')) {
-                clearInterval(pollLog);
-                setLoading(false);
-                if (data.log.includes('exit_code=0')) {
-                  toast('Aircraft bound successfully!', 'success');
-                } else {
-                  toast('Setup finished with errors', 'error');
-                }
-                onSuccess();
-              }
-            }
-          } catch { /* ignore poll errors */ }
-        }, 3000);
+        setOutput('Setup running — installing packages, configuring bridge, starting services...\n');
+        startPolling();
       } else {
-        setOutput('ERROR: ' + (res.error || 'Setup failed') + '\n');
+        setOutput('ERROR: ' + (res.error || 'Bind failed') + '\n');
         toast(res.error || 'Bind failed', 'error');
-        setLoading(false);
+        setRunning(false);
       }
     } catch {
       toast('Failed to start binding', 'error');
-      setLoading(false);
+      setRunning(false);
     }
   };
 
   if (!peer) return null;
 
-  const stepTitle = step === 'name' ? `Bind ${peer.hostname} — Name`
-    : step === 'password' ? `Bind ${name} — Authentication`
-    : `Setting up ${name}...`;
-
   return (
-    <Modal open={open} onClose={loading ? () => {} : onClose} title={stepTitle} wide>
+    <Modal open={open} onClose={running ? () => {} : onClose} title={`Bind ${peer.hostname}`} wide>
       <div className="space-y-4">
-        {/* Step indicator */}
-        <div className="flex gap-1">
-          {(['name', 'password', 'running'] as const).map((s, i) => (
-            <div key={s} className={cn(
-              'h-1 flex-1 rounded-full',
-              i <= ['name', 'password', 'running'].indexOf(step) ? 'bg-accent' : 'bg-border/30',
-            )} />
-          ))}
+        {/* Name + IP (always visible) */}
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="block text-xs text-text-secondary mb-1">Aircraft Name</label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Aircraft Alpha"
+              disabled={running}
+              autoFocus={!running && !needsPassword}
+              className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary disabled:opacity-50"
+              onKeyDown={e => !running && !needsPassword && e.key === 'Enter' && handleBind()}
+            />
+          </div>
+          <div className="w-40">
+            <label className="block text-xs text-text-secondary mb-1">VPN IP</label>
+            <div className="font-mono text-sm text-text-secondary bg-bg-primary border border-border rounded-lg px-3 py-2">
+              {peer.ip}
+            </div>
+          </div>
         </div>
 
-        {step === 'name' && (
-          <>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">VPN IP</label>
-              <div className="font-mono text-sm text-text-primary bg-bg-primary border border-border rounded-lg px-3 py-2">
-                {peer.ip}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">Aircraft Name</label>
-              <input
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Aircraft Alpha"
-                autoFocus
-                className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
-                onKeyDown={e => e.key === 'Enter' && handleNext()}
-              />
-            </div>
+        {/* Password prompt — only shown if SSH key auth failed */}
+        {needsPassword && (
+          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 space-y-3">
+            <p className="text-sm text-warning">
+              SSH key not installed on this aircraft. Enter the root password for first-time setup.
+            </p>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Root password"
+              autoFocus
+              className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
+              onKeyDown={e => e.key === 'Enter' && password && handleBind(password)}
+            />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose}>Cancel</Button>
-              <Button variant="primary" onClick={handleNext}>Next</Button>
+              <Button variant="primary" onClick={() => handleBind(password)} disabled={!password}>
+                Continue Setup
+              </Button>
             </div>
-          </>
+          </div>
         )}
 
-        {step === 'password' && (
-          <>
-            <p className="text-sm text-text-secondary">
-              SSH key authentication is needed to configure <strong>{name}</strong> ({peer.ip}).
-              Enter the root password if this is the first time connecting, or skip if SSH keys are already installed.
-            </p>
-            <div>
-              <label className="block text-sm text-text-secondary mb-1">SSH Root Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Root password"
-                autoFocus
-                className="w-full bg-bg-input border border-border rounded-lg px-3 py-2 text-sm text-text-primary"
-                onKeyDown={e => e.key === 'Enter' && startSetup(password)}
-              />
-              <p className="text-xs text-text-secondary mt-1">
-                Stored securely for future reconnects. Only used once to install SSH keys.
-              </p>
-            </div>
-            <div className="flex justify-between">
-              <Button variant="ghost" onClick={() => setStep('name')}>Back</Button>
-              <div className="flex gap-2">
-                <Button variant="ghost" onClick={() => startSetup('')}>
-                  Skip (keys installed)
-                </Button>
-                <Button variant="primary" onClick={() => startSetup(password)}>
-                  Start Setup
-                </Button>
-              </div>
-            </div>
-          </>
+        {/* Setup log output */}
+        {output && (
+          <pre className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-64 overflow-y-auto whitespace-pre-wrap">
+            {output}
+          </pre>
         )}
 
-        {step === 'running' && (
-          <>
-            <pre className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-64 overflow-y-auto whitespace-pre-wrap">
-              {output || 'Initializing...'}
-            </pre>
-            {!loading && (
-              <div className="flex justify-end">
-                <Button variant="ghost" onClick={onClose}>Close</Button>
-              </div>
-            )}
-            {loading && (
-              <div className="flex items-center gap-2 text-sm text-text-secondary">
-                <span className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-[spin_0.8s_linear_infinite]" />
-                Setup in progress — this takes ~2 minutes
-              </div>
-            )}
-          </>
+        {/* Running spinner */}
+        {running && (
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-[spin_0.8s_linear_infinite]" />
+            Setup in progress — this takes ~2 minutes
+          </div>
+        )}
+
+        {/* Action buttons (when not running and not prompting for password) */}
+        {!running && !needsPassword && !output && (
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={() => handleBind()}>
+              Bind Aircraft
+            </Button>
+          </div>
+        )}
+
+        {/* Close button after completion */}
+        {!running && output && !needsPassword && (
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+          </div>
         )}
       </div>
     </Modal>
@@ -408,7 +397,7 @@ function LinkSettingsPanel() {
 export function BindingManager({ onRefresh }: Props) {
   const [discovery, setDiscovery] = useState<PeerDiscovery | null>(null);
   const [profiles, setProfiles] = useState<AircraftProfiles | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<Filter>('online');
   const [bindPeer, setBindPeer] = useState<DiscoveredPeer | null>(null);
   const [loading, setLoading] = useState(true);
   const [manualIp, setManualIp] = useState('');

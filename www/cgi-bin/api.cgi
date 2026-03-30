@@ -656,45 +656,51 @@ discover_peers() {
     exit 0
 }
 
-# Bind aircraft: save profile, install SSH keys, run full setup in background
+# Bind aircraft: save profile, check SSH, run full setup in background
 bind_aircraft_action() {
     local ip="$1"
     local name="$2"
     local password="$3"
 
-    [ -z "$ip" ] && json_error "Tailscale IP is required"
+    [ -z "$ip" ] && json_error "IP is required"
     [ -z "$name" ] && json_error "Aircraft name is required"
-    [ -z "$password" ] && json_error "SSH password is required"
     validate_ip "$ip" || json_error "Invalid IP format (must be 100.x.x.x)"
 
-    # Verify aircraft is reachable before starting
     if ! ping -c 1 -W 2 "$ip" >/dev/null 2>&1; then
         json_error "Aircraft $ip is not reachable"
     fi
 
-    # Generate profile ID from name
+    # Generate profile ID
     local id=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
 
-    # Save profile with password to aircraft.json
-    # l2bridge setup reads this to get the password for non-interactive SSH
+    # Check if SSH key auth already works (no password needed)
+    local ssh_ok=0
+    if [ -f "$SSH_KEY" ]; then
+        local verify=$(timeout 5 dbclient -i "$SSH_KEY" -y root@"$ip" "echo keyauth_ok" </dev/null 2>/dev/null)
+        [ "$verify" = "keyauth_ok" ] && ssh_ok=1
+    fi
+
+    # If no SSH key auth and no password provided, ask for password
+    if [ $ssh_ok -eq 0 ] && [ -z "$password" ]; then
+        json_response "{\"success\": false, \"needs_password\": true, \"error\": \"SSH key auth failed. Password required for first-time setup.\"}"
+        return
+    fi
+
+    # Save profile (with password if provided)
     init_aircraft_file
     add_aircraft "$id" "$name" "$ip" "$password" > /dev/null 2>&1
-
-    # Set as active aircraft + save state file (l2bridge setup reads these)
     sed -i "s/\"active\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"active\": \"$id\"/" "$AIRCRAFT_FILE"
     echo "AIRCRAFT_IP=\"$ip\"" > /etc/l2bridge.conf
 
-    # Run full l2bridge setup in background
-    # This does everything: SSH key install, package install on aircraft,
-    # config generation, init scripts, nftables, start services, STP wait
+    # Run full setup in background
     : > /tmp/l2bridge-setup.log
     (
         "$L2BRIDGE" setup "$ip" "$name" >> /tmp/l2bridge-setup.log 2>&1
         echo "[BIND COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
     ) &
 
-    json_response "{\"success\": true, \"message\": \"Full setup started — installing packages, configuring bridge, starting services. This takes ~2 minutes.\", \"id\": \"$id\", \"log_file\": \"/tmp/l2bridge-setup.log\"}"
+    json_response "{\"success\": true, \"id\": \"$id\"}"
 }
 
 # Unbind aircraft: stop + remove

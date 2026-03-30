@@ -114,6 +114,7 @@ export interface CommandResponse {
   duration_seconds?: number;
   error?: string;
   log_file?: string;
+  needs_password?: boolean;
 }
 
 export interface FileInfo {

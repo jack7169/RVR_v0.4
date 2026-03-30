@@ -675,9 +675,9 @@ bind_aircraft_action() {
     init_aircraft_file
     add_aircraft "$id" "$name" "$ip" "$password" > /dev/null 2>&1
 
-    # Run l2bridge setup in background
+    # Run l2bridge setup in background (no nohup on BusyBox)
     acquire_lock
-    nohup "$L2BRIDGE" setup "$ip" "$name" > /tmp/l2bridge-setup.log 2>&1 &
+    "$L2BRIDGE" setup "$ip" "$name" > /tmp/l2bridge-setup.log 2>&1 &
     release_lock
 
     json_response "{\"success\": true, \"message\": \"Setup started in background\", \"id\": \"$id\", \"log_file\": \"/tmp/l2bridge-setup.log\"}"

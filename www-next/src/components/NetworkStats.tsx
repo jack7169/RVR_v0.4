@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -49,39 +49,34 @@ function formatChartRate(value: number): string {
 }
 
 export function NetworkStats({ status }: Props) {
-  const [window, setWindow] = useState<TimeWindow>(60);
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
   const [serverHistory, setServerHistory] = useState<DataPoint[]>([]);
-  const [, setServerWindow] = useState<number>(0);
   const { getWindow, current } = useNetHistory(status);
   const { l2bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
   // Fetch server-side history for windows > 15min (beyond client buffer)
-  const loadServerHistory = useCallback(async (seconds: number) => {
-    if (seconds <= 900) { setServerHistory([]); setServerWindow(0); return; }
-    try {
-      const res = await fetchStatsHistory(seconds);
-      const points: DataPoint[] = res.points.map(p => {
+  useEffect(() => {
+    if (timeWindow <= 900) { setServerHistory([]); return; }
+    let cancelled = false;
+    fetchStatsHistory(timeWindow).then(res => {
+      if (cancelled) return;
+      setServerHistory(res.points.map(p => {
         const d = new Date(p.t);
         return {
           time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-          t: p.t,
-          rx: p.rx,
-          tx: p.tx,
-          pkts: p.pkts,
+          t: p.t, rx: p.rx, tx: p.tx, pkts: p.pkts,
         };
-      });
-      setServerHistory(points);
-      setServerWindow(seconds);
-    } catch {
-      setServerHistory([]);
-    }
-  }, []);
+      }));
+    }).catch(() => { if (!cancelled) setServerHistory([]); });
+    return () => { cancelled = true; };
+  }, [timeWindow]);
 
-  useEffect(() => { loadServerHistory(window); }, [window, loadServerHistory]);
-
-  // Use server history for long windows, client history for short ones
-  const data = window > 900 && serverHistory.length > 0 ? serverHistory : getWindow(window);
+  // Compute chart data synchronously — no waiting for re-render or effects
+  const data = useMemo(() => {
+    if (timeWindow > 900 && serverHistory.length > 0) return serverHistory;
+    return getWindow(timeWindow);
+  }, [timeWindow, serverHistory, getWindow, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -92,10 +87,10 @@ export function NetworkStats({ status }: Props) {
           {WINDOWS.map(w => (
             <button
               key={w.seconds}
-              onClick={() => setWindow(w.seconds)}
+              onClick={() => setTimeWindow(w.seconds)}
               className={cn(
                 'text-xs px-2.5 py-1 rounded-md transition-colors',
-                window === w.seconds
+                timeWindow === w.seconds
                   ? 'bg-accent text-white'
                   : 'bg-bg-primary text-text-secondary hover:text-text-primary',
               )}

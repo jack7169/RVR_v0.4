@@ -278,7 +278,8 @@ if [ -d "$TS_STATS_DIR" ]; then
 fi
 
 # Get current timestamp in milliseconds for rate calculation
-STATS_TIMESTAMP=$(date +%s%3N 2>/dev/null || echo $(($(date +%s) * 1000)))
+# BusyBox date doesn't support %3N — always compute ms from seconds
+STATS_TIMESTAMP=$(($(date +%s) * 1000))
 
 # Append to rolling stats history file (for server-side chart data)
 # Format: timestamp_ms|rx_bytes|tx_bytes|rx_packets|tx_packets|rx_errors|tx_errors|dropped_pkts

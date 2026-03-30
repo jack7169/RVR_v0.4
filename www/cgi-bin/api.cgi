@@ -767,17 +767,20 @@ get_stats_history() {
     fi
 
     # Read file, compute rates from deltas, filter by time window
-    local now_ms
-    now_ms=$(date +%s%3N 2>/dev/null || echo $(($(date +%s) * 1000)))
-    local cutoff_ms=$((now_ms - window * 1000))
+    # Timestamps may be seconds (BusyBox) or milliseconds — detect from first line
+    local now_s
+    now_s=$(date +%s)
+    local cutoff_s=$((now_s - window))
 
-    awk -F'|' -v cutoff="$cutoff_ms" '
+    awk -F'|' -v cutoff="$cutoff_s" '
     BEGIN { printf "{\"points\":["; first=1 }
     {
         t=$1; rx=$2; tx=$3; pkts=$4+$5; errs=$6+$7; drops=$8
+        # Auto-detect: if timestamp > 10^12, it is milliseconds — convert to seconds
+        if (t > 9999999999) { t = int(t / 1000) }
         if (t+0 < cutoff+0) { prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts; next }
         if (prev_t && t > prev_t) {
-            dt = (t - prev_t) / 1000
+            dt = t - prev_t
             rx_rate = (rx - prev_rx) / dt
             tx_rate = (tx - prev_tx) / dt
             pkt_rate = (pkts - prev_pkts) / dt
@@ -785,7 +788,7 @@ get_stats_history() {
             if (tx_rate < 0) tx_rate = 0
             if (pkt_rate < 0) pkt_rate = 0
             if (!first) printf ","
-            printf "{\"t\":%s,\"rx\":%.0f,\"tx\":%.0f,\"pkts\":%.0f}", t, rx_rate, tx_rate, pkt_rate
+            printf "{\"t\":%s,\"rx\":%.0f,\"tx\":%.0f,\"pkts\":%.0f}", t * 1000, rx_rate, tx_rate, pkt_rate
             first = 0
         }
         prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts

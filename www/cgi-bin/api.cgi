@@ -520,84 +520,66 @@ probe_peer() {
     wget -q -T 1 -O- "http://${ip}:8081/cgi-bin/discovery.cgi" 2>/dev/null || echo ""
 }
 
-# Discover all peers via WireGuard enumeration + HTTP probes
-discover_peers() {
+# Background discovery scan — runs probes and writes results to cache file
+# Called as: run_discovery_scan &
+DISCOVERY_CACHE="/tmp/l2bridge-discovery-cache.json"
+DISCOVERY_LOCK="/tmp/l2bridge-discovery.lock"
+
+run_discovery_scan() {
+    # Prevent concurrent scans
+    [ -f "$DISCOVERY_LOCK" ] && kill -0 "$(cat "$DISCOVERY_LOCK")" 2>/dev/null && return
+    echo $$ > "$DISCOVERY_LOCK"
+    trap "rm -f '$DISCOVERY_LOCK'" EXIT
+
     init_aircraft_file
 
-    # Build bound IP lookup from aircraft.json
+    # Build bound IP lookup
     local bound_data=""
-    if [ -f "$AIRCRAFT_FILE" ]; then
-        bound_data=$(awk '
-            /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ {
-                id=$0; sub(/^[^"]*"/, "", id); sub(/".*/, "", id)
-                if (id != "profiles") cur_id=id
-            }
-            cur_id && /"name":/ { n=$0; sub(/.*"name":[[:space:]]*"/, "", n); sub(/".*/, "", n); p_name[cur_id]=n }
-            cur_id && /"tailscale_ip":/ { n=$0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", n); sub(/".*/, "", n); p_ip[cur_id]=n }
-            cur_id && /"last_used":/ {
-                print p_ip[cur_id] "|" cur_id "|" p_name[cur_id]
-            }
-        ' "$AIRCRAFT_FILE")
-    fi
+    [ -f "$AIRCRAFT_FILE" ] && bound_data=$(awk '
+        /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ { id=$0; sub(/^[^"]*"/, "", id); sub(/".*/, "", id); if (id != "profiles") cur_id=id }
+        cur_id && /"name":/ { n=$0; sub(/.*"name":[[:space:]]*"/, "", n); sub(/".*/, "", n); p_name[cur_id]=n }
+        cur_id && /"tailscale_ip":/ { n=$0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", n); sub(/".*/, "", n); p_ip[cur_id]=n }
+        cur_id && /"last_used":/ { print p_ip[cur_id] "|" cur_id "|" p_name[cur_id] }
+    ' "$AIRCRAFT_FILE")
 
-    # Get self info
+    # Self info
     local self_hostname=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown")
     local self_role="unknown"
     [ -f /etc/init.d/kcptun-server ] && self_role="gcs"
     [ -f /etc/init.d/kcptun-client ] && self_role="aircraft"
     local self_gitver=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
 
-    # Enumerate peers from multiple sources: WG interface + aircraft.json + manual IPs
-    local tmp_peers="/tmp/l2bridge-discovery.$$"
-    : > "$tmp_peers"
-
-    # Source 1: WireGuard peers (kernel WG or VPN socket API)
+    # Collect peer IPs from all sources
+    local tmp_peers="/tmp/l2bridge-disc-peers.$$"
     enumerate_wg_peers > "$tmp_peers" 2>/dev/null
+    [ -f "$AIRCRAFT_FILE" ] && awk '/"tailscale_ip":/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print $0"|0|0|0" }' "$AIRCRAFT_FILE" >> "$tmp_peers"
+    [ -f /etc/l2bridge/peers.conf ] && awk '/./ {print $0"|0|0|0"}' /etc/l2bridge/peers.conf >> "$tmp_peers"
 
-    # Source 2: Known IPs from aircraft.json profiles
-    if [ -f "$AIRCRAFT_FILE" ]; then
-        awk '/"tailscale_ip":/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print $0"|0|0|0" }' "$AIRCRAFT_FILE" >> "$tmp_peers"
-    fi
+    # Deduplicate
+    local tmp_sorted="${tmp_peers}.s"
+    sort -t'|' -k1,1 -u "$tmp_peers" > "$tmp_sorted" 2>/dev/null
+    mv "$tmp_sorted" "$tmp_peers"
 
-    # Source 3: Manual peer IPs file (one IP per line, user can add via UI)
-    [ -f /etc/l2bridge/peers.conf ] && while read -r manual_ip; do
-        [ -n "$manual_ip" ] && echo "$manual_ip|0|0|0"
-    done < /etc/l2bridge/peers.conf >> "$tmp_peers"
-
-    # Deduplicate by IP
-    sort -t'|' -k1,1 -u "$tmp_peers" -o "$tmp_peers"
-
-    # Probe peers in parallel (background jobs, max 10)
-    local tmp_results="/tmp/l2bridge-discovery-results.$$"
+    # Probe peers in parallel
+    local tmp_results="/tmp/l2bridge-disc-results.$$"
     : > "$tmp_results"
     local job_count=0
 
     while IFS='|' read -r ip handshake rx tx; do
         [ -z "$ip" ] && continue
         (
-            # Quick reachability check before slow HTTP probe
             if ! ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
                 echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown"
                 exit 0
             fi
-            probe_json=$(probe_peer "$ip")
+            probe_json=$(wget -q -T 1 -O- "http://${ip}:8081/cgi-bin/discovery.cgi" 2>/dev/null)
             if [ -n "$probe_json" ]; then
-                # Extract fields from probe response
                 p_hostname=$(echo "$probe_json" | sed -n 's/.*"hostname"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
                 p_role=$(echo "$probe_json" | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-                p_kcptun=$(echo "$probe_json" | sed -n 's/.*"kcptun"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-                p_l2tap=$(echo "$probe_json" | sed -n 's/.*"l2tap"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-                p_streams=$(echo "$probe_json" | sed -n 's/.*"l2tap_streams"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
                 p_gitver=$(echo "$probe_json" | sed -n 's/.*"git_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-                echo "$ip|$handshake|$rx|$tx|online|${p_hostname:-unknown}|${p_role:-unknown}|${p_kcptun:-unknown}|${p_l2tap:-unknown}|${p_streams:-0}|${p_gitver:-unknown}"
+                echo "$ip|$handshake|$rx|$tx|online|${p_hostname:-unknown}|${p_role:-unknown}||||${p_gitver:-unknown}"
             else
-                # Probe failed — check if WG handshake is recent (< 180s)
-                now=$(date +%s)
-                if [ "$handshake" -gt 0 ] 2>/dev/null && [ $((now - handshake)) -lt 180 ]; then
-                    echo "$ip|$handshake|$rx|$tx|stale|unknown|unknown|unknown|unknown|0|unknown"
-                else
-                    echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown"
-                fi
+                echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown"
             fi
         ) >> "$tmp_results" &
         job_count=$((job_count + 1))
@@ -605,55 +587,72 @@ discover_peers() {
     done < "$tmp_peers"
     wait
 
-    # Build JSON response
+    # Build JSON result and write atomically to cache
+    local tmp_cache="${DISCOVERY_CACHE}.tmp"
+    {
+        printf '{\n  "self": {\n'
+        printf '    "hostname": "%s",\n' "$self_hostname"
+        printf '    "ip": "",\n'
+        printf '    "role": "%s",\n' "$self_role"
+        printf '    "connection_mode": "online",\n'
+        printf '    "git_version": "%s",\n' "$self_gitver"
+        printf '    "is_self": true,\n'
+        printf '    "is_bound": false,\n'
+        printf '    "wg_rx_bytes": 0,\n'
+        printf '    "wg_tx_bytes": 0\n'
+        printf '  },\n  "peers": ['
+
+        local first=1
+        while IFS='|' read -r ip handshake rx tx mode hostname role _ _ _ gitver; do
+            [ -z "$ip" ] && continue
+            local is_bound="false" bound_id="" bound_name=""
+            # Check bound status
+            local match
+            match=$(echo "$bound_data" | awk -F'|' -v pip="$ip" '$1==pip {print $2"|"$3; exit}')
+            if [ -n "$match" ]; then
+                is_bound="true"
+                bound_id=$(echo "$match" | cut -d'|' -f1)
+                bound_name=$(echo "$match" | cut -d'|' -f2)
+            fi
+
+            [ $first -eq 0 ] && printf ','
+            printf '\n    {'
+            printf '"hostname":"%s",' "${hostname:-unknown}"
+            printf '"ip":"%s",' "$ip"
+            printf '"role":"%s",' "${role:-unknown}"
+            printf '"connection_mode":"%s",' "$mode"
+            printf '"is_self":false,'
+            printf '"is_bound":%s,' "$is_bound"
+            [ -n "$bound_id" ] && printf '"bound_profile_id":"%s",' "$bound_id"
+            [ -n "$bound_name" ] && printf '"bound_profile_name":"%s",' "$bound_name"
+            printf '"git_version":"%s",' "${gitver:-unknown}"
+            printf '"wg_rx_bytes":%s,' "${rx:-0}"
+            printf '"wg_tx_bytes":%s,' "${tx:-0}"
+            printf '"wg_last_handshake":%s' "${handshake:-0}"
+            printf '}'
+            first=0
+        done < "$tmp_results"
+
+        printf '\n  ]\n}\n'
+    } > "$tmp_cache"
+    mv "$tmp_cache" "$DISCOVERY_CACHE"
+
+    rm -f "$tmp_peers" "$tmp_results" "$DISCOVERY_LOCK"
+}
+
+# discover_peers: returns cached results immediately, triggers background refresh
+discover_peers() {
+    # Always trigger a background scan
+    run_discovery_scan >/dev/null 2>&1 &
+
+    # Return cached results (or empty if no cache yet)
     echo "Content-Type: application/json"
     echo ""
-    printf '{\n  "self": {\n'
-    printf '    "hostname": "%s",\n' "$self_hostname"
-    printf '    "ip": "",\n'
-    printf '    "role": "%s",\n' "$self_role"
-    printf '    "connection_mode": "online",\n'
-    printf '    "git_version": "%s",\n' "$self_gitver"
-    printf '    "is_self": true,\n'
-    printf '    "is_bound": false,\n'
-    printf '    "wg_rx_bytes": 0,\n'
-    printf '    "wg_tx_bytes": 0\n'
-    printf '  },\n  "peers": ['
-
-    local first=1
-    while IFS='|' read -r ip handshake rx tx mode hostname role kcptun l2tap streams gitver; do
-        [ -z "$ip" ] && continue
-
-        # Check if bound
-        local is_bound="false"
-        local bound_id=""
-        local bound_name=""
-        echo "$bound_data" | while IFS='|' read -r bip bid bname; do
-            [ "$bip" = "$ip" ] && echo "$bid|$bname"
-        done | read bound_id bound_name 2>/dev/null
-        [ -n "$bound_id" ] && is_bound="true"
-
-        [ $first -eq 0 ] && printf ','
-        printf '\n    {\n'
-        printf '      "hostname": "%s",\n' "${hostname:-unknown}"
-        printf '      "ip": "%s",\n' "$ip"
-        printf '      "role": "%s",\n' "${role:-unknown}"
-        printf '      "connection_mode": "%s",\n' "$mode"
-        printf '      "is_self": false,\n'
-        printf '      "is_bound": %s,\n' "$is_bound"
-        [ -n "$bound_id" ] && printf '      "bound_profile_id": "%s",\n' "$bound_id"
-        [ -n "$bound_name" ] && printf '      "bound_profile_name": "%s",\n' "$bound_name"
-        printf '      "git_version": "%s",\n' "${gitver:-unknown}"
-        printf '      "wg_rx_bytes": %s,\n' "${rx:-0}"
-        printf '      "wg_tx_bytes": %s,\n' "${tx:-0}"
-        printf '      "wg_last_handshake": %s\n' "${handshake:-0}"
-        printf '    }'
-        first=0
-    done < "$tmp_results"
-
-    printf '\n  ]\n}\n'
-
-    rm -f "$tmp_peers" "$tmp_results"
+    if [ -f "$DISCOVERY_CACHE" ]; then
+        cat "$DISCOVERY_CACHE"
+    else
+        printf '{"self":{"hostname":"scanning...","ip":"","role":"unknown","connection_mode":"online","git_version":"unknown","is_self":true,"is_bound":false,"wg_rx_bytes":0,"wg_tx_bytes":0},"peers":[]}\n'
+    fi
     exit 0
 }
 

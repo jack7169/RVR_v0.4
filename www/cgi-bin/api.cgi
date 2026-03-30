@@ -488,11 +488,23 @@ enumerate_wg_peers() {
         [ -S "$sock" ] && { vpn_socket="$sock"; break; }
     done
     if [ -n "$vpn_socket" ] && command -v curl >/dev/null 2>&1; then
-        # Query the VPN daemon's local API for peer list
-        # URL host is arbitrary for Unix sockets; API path is /localapi/v0/status
-        curl -s --max-time 3 --unix-socket "$vpn_socket" "http://localhost/localapi/v0/status" 2>/dev/null | \
-            awk '/"Peer":/,0' | \
-            awk '/"TailscaleIPs"/{found=1; next} found && /100\./{gsub(/[" \t,\[\]]/,"",$0); if($0 ~ /^100\./) print $0"|0|0|0"; found=0}' 2>/dev/null
+        # Query the VPN daemon's local API for peer list.
+        # Both Tailscale and Headscale clients run tailscaled which serves
+        # this API. Host header must be "local-tailscaled.sock".
+        local api_url="http://local-tailscaled.sock/localapi/v0/status"
+        local api_json
+        api_json=$(curl -s --max-time 3 --unix-socket "$vpn_socket" "$api_url" 2>/dev/null)
+        [ -z "$api_json" ] && return
+
+        # Get self IP to exclude from peer list
+        local self_ip
+        self_ip=$(echo "$api_json" | grep -oE '"100\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | tr -d '"')
+
+        # Extract all unique 100.x.x.x IPs, excluding self
+        echo "$api_json" | grep -oE '100\.[0-9]+\.[0-9]+\.[0-9]+' | sort -u | while read -r peer_ip; do
+            [ "$peer_ip" = "$self_ip" ] && continue
+            echo "$peer_ip|0|0|0"
+        done
         return
     fi
 

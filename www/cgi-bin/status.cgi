@@ -161,7 +161,7 @@ if [ -n "$AIRCRAFT_IP" ]; then
     done
     [ -z "$WG_IFACE" ] && WG_IFACE=$(ip -4 addr show | awk '/100\.[0-9]+\.[0-9]+\.[0-9]+/ { gsub(/.*dev /, ""); gsub(/ .*/, ""); print; exit }')
 
-    # Parse WG stats for this peer
+    # Try kernel WireGuard first
     if command -v wg >/dev/null 2>&1 && [ -n "$WG_IFACE" ]; then
         WG_PEER_LINE=$(wg show "$WG_IFACE" dump 2>/dev/null | awk -v ip="$AIRCRAFT_IP" '$4 ~ ip {print}')
         if [ -n "$WG_PEER_LINE" ]; then
@@ -175,6 +175,47 @@ if [ -n "$AIRCRAFT_IP" ]; then
                 TS_PEER_MODE="idle"
             fi
         fi
+    fi
+
+    # Fallback: VPN daemon local API (Tailscale/Headscale)
+    if [ "$TS_PEER_MODE" = "unknown" ] && command -v curl >/dev/null 2>&1; then
+        vpn_sock=""
+        for s in /var/run/tailscale/tailscaled.sock /run/tailscale/tailscaled.sock; do
+            [ -S "$s" ] && { vpn_sock="$s"; break; }
+        done
+        if [ -n "$vpn_sock" ]; then
+            # Get full status, then extract the peer block containing our aircraft IP
+            # The JSON has Peer map -> each peer has TailscaleIPs array
+            # We grep for lines around the aircraft IP to find Relay/Online/RxBytes/TxBytes
+            PEER_BLOCK=$(curl -s --max-time 2 --unix-socket "$vpn_sock" \
+                "http://local-tailscaled.sock/localapi/v0/status" 2>/dev/null | \
+                awk -v ip="$AIRCRAFT_IP" '
+                    /\"'"$AIRCRAFT_IP"'\"/ { found=1 }
+                    found { lines[NR] = $0 }
+                    found && /\}/ && !/\{/ { for (i in lines) print lines[i]; exit }
+                ')
+            if [ -n "$PEER_BLOCK" ]; then
+                # Check for Relay field (indicates relayed connection)
+                PEER_RELAY=$(echo "$PEER_BLOCK" | sed -n 's/.*"Relay"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                PEER_RX=$(echo "$PEER_BLOCK" | sed -n 's/.*"RxBytes"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+                PEER_TX=$(echo "$PEER_BLOCK" | sed -n 's/.*"TxBytes"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
+
+                [ -n "$PEER_RX" ] && TS_PEER_RX="$PEER_RX"
+                [ -n "$PEER_TX" ] && TS_PEER_TX="$PEER_TX"
+
+                if [ -n "$PEER_RELAY" ]; then
+                    TS_PEER_MODE="relay"
+                    TS_PEER_RELAY="$PEER_RELAY"
+                else
+                    TS_PEER_MODE="direct"
+                fi
+            fi
+        fi
+    fi
+
+    # Last resort: if aircraft is reachable, call it direct
+    if [ "$TS_PEER_MODE" = "unknown" ] && [ "$AIRCRAFT_REACHABLE" = "true" ]; then
+        TS_PEER_MODE="direct"
     fi
 fi
 

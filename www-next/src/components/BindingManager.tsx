@@ -658,7 +658,11 @@ export function BindingManager({ onRefresh }: Props) {
 
         {filteredPeers.length === 0 && (
           <p className="text-sm text-text-secondary text-center py-6">
-            {filter === 'all' ? 'No peers found' : `No ${filter} peers`}
+            {filter === 'all'
+              ? 'No VPN peers found. Check that Tailscale/WireGuard is running.'
+              : filter === 'online'
+              ? `No peers online. ${(discovery?.peers.length ?? 0)} peers discovered but all offline. Try "All" filter.`
+              : 'No unbound peers found.'}
           </p>
         )}
       </Card>

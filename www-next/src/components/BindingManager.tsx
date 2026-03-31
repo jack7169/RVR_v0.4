@@ -579,12 +579,19 @@ export function BindingManager({ onRefresh }: Props) {
     }
   };
 
-  const filteredPeers = discovery?.peers.filter(p => {
-    if (p.is_self) return false; // Self shown separately at top
+  const filteredPeers = (discovery?.peers.filter(p => {
+    if (p.is_self) return false;
     if (filter === 'online') return p.connection_mode === 'online';
     if (filter === 'unbound') return !p.is_bound;
     return true;
-  }) ?? [];
+  }) ?? []).sort((a, b) => {
+    // Online first, then alphabetical by hostname, then by IP
+    if (a.connection_mode === 'online' && b.connection_mode !== 'online') return -1;
+    if (a.connection_mode !== 'online' && b.connection_mode === 'online') return 1;
+    if (a.hostname !== 'unknown' && b.hostname === 'unknown') return -1;
+    if (a.hostname === 'unknown' && b.hostname !== 'unknown') return 1;
+    return a.ip.localeCompare(b.ip);
+  });
 
   if (loading) {
     return (

@@ -140,6 +140,21 @@ AIRCRAFT_L2TAP="unknown"
 AIRCRAFT_IFACE="unknown"
 
 if [ -n "$AIRCRAFT_IP" ]; then
+    # Cache remote status for 10 seconds to prevent process storms at 1-3s polling
+    REMOTE_CACHE="/tmp/l2bridge-remote-cache"
+    CACHE_VALID=0
+    if [ -f "$REMOTE_CACHE" ]; then
+        CACHE_AGE=$(( NOW_S - $(head -1 "$REMOTE_CACHE" 2>/dev/null || echo 0) ))
+        if [ "$CACHE_AGE" -lt 10 ]; then
+            CACHE_VALID=1
+            AIRCRAFT_REACHABLE=$(sed -n '2p' "$REMOTE_CACHE")
+            AIRCRAFT_KCPTUN=$(sed -n '3p' "$REMOTE_CACHE")
+            AIRCRAFT_L2TAP=$(sed -n '4p' "$REMOTE_CACHE")
+            AIRCRAFT_IFACE=$(sed -n '5p' "$REMOTE_CACHE")
+        fi
+    fi
+
+    if [ "$CACHE_VALID" -eq 0 ]; then
     # Quick ping check (1 second timeout)
     if ping -c 1 -W 1 "$AIRCRAFT_IP" >/dev/null 2>&1; then
         AIRCRAFT_REACHABLE="true"
@@ -166,6 +181,9 @@ if [ -n "$AIRCRAFT_IP" ]; then
             fi
         fi
     fi
+    # Write cache
+    printf '%s\n%s\n%s\n%s\n%s\n' "$NOW_S" "$AIRCRAFT_REACHABLE" "$AIRCRAFT_KCPTUN" "$AIRCRAFT_L2TAP" "$AIRCRAFT_IFACE" > "$REMOTE_CACHE"
+    fi  # end CACHE_VALID check
 fi
 
 # Get VPN peer connection info for aircraft (VPN-agnostic via WireGuard stats)
@@ -313,13 +331,19 @@ fi
 # BusyBox date doesn't support %3N — always compute ms from seconds
 STATS_TIMESTAMP=$(($(date +%s) * 1000))
 
-# Append to rolling stats history file (for server-side chart data)
-# Format: timestamp_ms|rx_bytes|tx_bytes|rx_packets|tx_packets|rx_errors|tx_errors|dropped_pkts
+# Append to rolling stats history — throttled to max 1 write per 3 seconds
+# Prevents /tmp exhaustion when UI polls at 1-3s intervals with multiple tabs
 STATS_HISTORY="/tmp/l2bridge-stats.csv"
-echo "$STATS_TIMESTAMP|$L2B_RX_BYTES|$L2B_TX_BYTES|$L2B_RX_PACKETS|$L2B_TX_PACKETS|$L2B_RX_ERRORS|$L2B_TX_ERRORS|$((L2B_RX_DROPPED + L2B_TX_DROPPED))" >> "$STATS_HISTORY" 2>/dev/null
-# Cap at 4320 lines (~6 hours at 5s polling)
-if [ -f "$STATS_HISTORY" ] && [ "$(wc -l < "$STATS_HISTORY" 2>/dev/null || echo 0)" -gt 4320 ]; then
-    tail -4320 "$STATS_HISTORY" > "${STATS_HISTORY}.tmp" && mv "${STATS_HISTORY}.tmp" "$STATS_HISTORY"
+STATS_LAST="/tmp/l2bridge-stats-last"
+NOW_S=$(date +%s)
+LAST_WRITE=$(cat "$STATS_LAST" 2>/dev/null || echo 0)
+if [ $((NOW_S - LAST_WRITE)) -ge 3 ]; then
+    echo "$STATS_TIMESTAMP|$L2B_RX_BYTES|$L2B_TX_BYTES|$L2B_RX_PACKETS|$L2B_TX_PACKETS|$L2B_RX_ERRORS|$L2B_TX_ERRORS|$((L2B_RX_DROPPED + L2B_TX_DROPPED))" >> "$STATS_HISTORY" 2>/dev/null
+    echo "$NOW_S" > "$STATS_LAST"
+    # Inline rotation — cap at 8640 lines (~7.2h at 3s throttle)
+    if [ "$(wc -l < "$STATS_HISTORY" 2>/dev/null || echo 0)" -gt 8640 ]; then
+        tail -8640 "$STATS_HISTORY" > "${STATS_HISTORY}.tmp" && mv "${STATS_HISTORY}.tmp" "$STATS_HISTORY"
+    fi
 fi
 
 # Bridge filter stats (nftables counters)

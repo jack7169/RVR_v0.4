@@ -75,16 +75,25 @@ done
 
 send_event "history_end" "{\"message\": \"Log history complete\"}"
 
-# Cleanup function
+# Auto-kill after 5 minutes to prevent orphaned processes
+# SSE clients should reconnect — this is a safety net
+(sleep 300; kill -TERM $$ 2>/dev/null; sleep 2; kill -KILL $$ 2>/dev/null) &
+TIMEOUT_PID=$!
+
+# Cleanup function — kill ALL child processes
 cleanup() {
-    # Kill all background processes
+    kill $TIMEOUT_PID 2>/dev/null
+    # Kill all background jobs (tail, logread, grep, reader)
     for pid in $(jobs -p 2>/dev/null); do
         kill "$pid" 2>/dev/null
     done
+    # Kill entire process group as failsafe
+    kill 0 2>/dev/null
+    rm -f "/tmp/l2bridge-logs-$$.fifo"
     exit 0
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 # Create a FIFO for aggregating log sources
 LOG_FIFO="/tmp/l2bridge-logs-$$.fifo"

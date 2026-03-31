@@ -529,7 +529,13 @@ run_discovery_scan() {
     # Prevent concurrent scans
     [ -f "$DISCOVERY_LOCK" ] && kill -0 "$(cat "$DISCOVERY_LOCK")" 2>/dev/null && return
     echo $$ > "$DISCOVERY_LOCK"
-    trap "rm -f '$DISCOVERY_LOCK'" EXIT
+
+    # Auto-kill after 30 seconds to prevent process accumulation
+    ( sleep 30; kill -TERM $$ 2>/dev/null ) &
+    local scan_timeout_pid=$!
+
+    # Clean up lock, timeout, and temp files on exit
+    trap "kill $scan_timeout_pid 2>/dev/null; rm -f '$DISCOVERY_LOCK' /tmp/l2bridge-disc-peers.$$ /tmp/l2bridge-disc-results.$$" EXIT
 
     init_aircraft_file
 

@@ -813,12 +813,41 @@ LOG="/tmp/l2bridge-watchdog.log"
 echo $$ > "$LOCK"
 trap "rm -f $LOCK" EXIT
 
-# Hard cap: truncate logs if over 512KB to prevent RAM exhaustion (/tmp is tmpfs)
-[ -f "$LOG" ] && [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 524288 ] && tail -50 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+# Dynamic log rotation based on available space
+FLASH_FREE_KB=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
+TMP_USED_KB=$(du -sk /tmp/l2bridge* /tmp/kcptun* 2>/dev/null | awk '{s+=$1} END {print s+0}')
 
-# Rotate kcptun SNMP log (cap at 512KB ~12h of 5s samples)
+LOG_CAP=2097152    # 2MB default (generous history)
+SNMP_CAP=2097152   # 2MB default
+
+# Low space: aggressive rotation
+if [ "${FLASH_FREE_KB:-999999}" -lt 20480 ]; then
+    LOG_CAP=262144; SNMP_CAP=262144  # 256KB each
+    logger -t l2bridge -p daemon.warn "Low flash: ${FLASH_FREE_KB}KB free"
+fi
+# Critical: emergency cleanup
+if [ "${FLASH_FREE_KB:-999999}" -lt 5120 ]; then
+    LOG_CAP=65536; SNMP_CAP=65536    # 64KB each
+    rm -f /tmp/l2bridge-capture.pcap
+    logger -t l2bridge -p daemon.err "CRITICAL: ${FLASH_FREE_KB}KB flash free"
+fi
+
+# Rotate logs
+[ -f "$LOG" ] && [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt "$LOG_CAP" ] && tail -50 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+
 SNMP_LOG="/tmp/kcptun-snmp.log"
-[ -f "$SNMP_LOG" ] && [ "$(wc -c < "$SNMP_LOG" 2>/dev/null || echo 0)" -gt 524288 ] && tail -2000 "$SNMP_LOG" > "$SNMP_LOG.tmp" && mv "$SNMP_LOG.tmp" "$SNMP_LOG"
+[ -f "$SNMP_LOG" ] && [ "$(wc -c < "$SNMP_LOG" 2>/dev/null || echo 0)" -gt "$SNMP_CAP" ] && tail -2000 "$SNMP_LOG" > "$SNMP_LOG.tmp" && mv "$SNMP_LOG.tmp" "$SNMP_LOG"
+
+# Clean orphaned temp files (older than 1 hour)
+find /tmp -name 'l2bridge-disc-*' -mmin +60 -delete 2>/dev/null
+find /tmp -name 'l2bridge-logs-*.fifo' -mmin +60 -delete 2>/dev/null
+
+# Kill orphaned log streaming processes (grep/tail from closed SSE connections)
+for pid in $(pgrep -f "grep.*l2bridge\|l2tap\|kcptun" 2>/dev/null); do
+    # Only kill if parent is init (orphaned)
+    ppid=$(awk '/PPid/ {print $2}' /proc/$pid/status 2>/dev/null)
+    [ "$ppid" = "1" ] && kill "$pid" 2>/dev/null
+done
 
 /usr/bin/l2bridge monitor >> "$LOG" 2>&1
 

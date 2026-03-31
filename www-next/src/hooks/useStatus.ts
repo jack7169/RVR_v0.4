@@ -7,7 +7,7 @@ export function useStatus() {
   const { data: status, error: queryError, dataUpdatedAt } = useQuery({
     queryKey: ['status'],
     queryFn: fetchStatus,
-    refetchInterval: 1000,
+    refetchInterval: 3000,
     retry: 1,
   });
 

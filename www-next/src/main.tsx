@@ -8,7 +8,7 @@ import { ToastProvider } from './components/ui/Toast'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000,
+      staleTime: 3000,
       retry: 1,
     },
   },

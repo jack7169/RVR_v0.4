@@ -166,6 +166,45 @@ cd l2tap && make                        # Host build (testing)
 cd l2tap && make cross                  # aarch64 cross-compile
 ```
 
+## System Health & Logging
+
+RVR includes adaptive resource management to prevent storage/memory exhaustion on resource-constrained routers.
+
+### Dynamic Log Rotation
+
+The watchdog (runs every minute via cron) monitors `/overlay` free space and adjusts log caps automatically:
+
+| Flash Free | Mode | Log Cap | Stats Lines | Action |
+|-----------|------|---------|-------------|--------|
+| >20 MB | Normal | 2 MB/file | 8640 (~7h) | Full history retention |
+| <20 MB | Low | 256 KB/file | 2000 (~2h) | Syslog warning |
+| <5 MB | Critical | 64 KB/file | 500 (~25min) | Delete captures, syslog error |
+
+### Throttled Polling
+
+- Status polling: 3s interval (prevents CGI/SSH process storms)
+- Stats CSV: max 1 write per 3 seconds regardless of poll count
+- Remote status: cached 10 seconds (prevents SSH connection accumulation)
+- SSE log streams: auto-killed after 5 minutes (prevents orphaned processes)
+- Discovery scans: 30-second timeout with process cleanup
+
+### Monitored Files on /tmp
+
+| File | Type | Growth | Cap |
+|------|------|--------|-----|
+| `l2bridge-stats.csv` | Append (throttled) | ~1 line/3s | 8640 lines inline |
+| `kcptun-snmp.log` | Append (kcptun) | ~1 line/5s | Dynamic (watchdog) |
+| `l2bridge-watchdog.log` | Append (cron) | ~1 line/min | Dynamic (watchdog) |
+| `l2tap.stats` | Overwrite | ~1 KB fixed | N/A |
+| `l2bridge-discovery-cache.json` | Overwrite | ~2-5 KB | N/A |
+| `l2bridge-setup.log` | Append (on bind) | Event-driven | 1 MB |
+
+### Orphan Process Prevention
+
+- Watchdog kills orphaned `grep`/`tail` processes (parent PID = 1)
+- Stale temp files (`l2bridge-disc-*`, `l2bridge-logs-*.fifo`) cleaned after 1 hour
+- SSE log viewer kills entire process group on disconnect or 5-minute timeout
+
 ## License
 
 Proprietary — Kuruka

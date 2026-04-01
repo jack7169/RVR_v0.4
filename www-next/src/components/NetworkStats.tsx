@@ -1,18 +1,12 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
 import { ArrowDown, ArrowUp, Activity, AlertTriangle, Globe, Radio } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
-import { useNetHistory, type DataPoint } from '../hooks/useNetHistory';
+import { type DataPoint, type TimeWindow } from '../hooks/useNetHistory';
 import { formatBytes, formatRate, formatPackets } from '../lib/utils';
 import { cn } from '../lib/utils';
-
-interface Props {
-  status: StatusResponse;
-}
-
-type TimeWindow = 15 | 60 | 300 | 900 | 3600 | 21600;
 
 const WINDOWS: { label: string; seconds: TimeWindow }[] = [
   { label: '15s', seconds: 15 },
@@ -320,6 +314,3 @@ export function WanTrafficPanel({ status, data, current, timeWindow, onTimeWindo
   );
 }
 
-// Re-export hook and types for use in App.tsx
-export { useNetHistory, type DataPoint } from '../hooks/useNetHistory';
-export type { TimeWindow };

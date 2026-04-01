@@ -8,7 +8,7 @@ import { AircraftStatusCard } from './components/AircraftStatusCard';
 import { BridgeControls } from './components/BridgeControls';
 import { CaptureControls } from './components/CaptureControls';
 import { FileManager } from './components/FileManager';
-import { useNetHistory, type TimeWindow } from './hooks/useNetHistory';
+import { useNetHistory, type DataPoint, type TimeWindow } from './hooks/useNetHistory';
 
 // Recharts has an internal react-redux subscription bug that can cause
 // infinite render loops (React #185). This boundary contains the crash

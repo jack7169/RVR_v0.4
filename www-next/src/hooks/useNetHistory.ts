@@ -2,6 +2,8 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import type { StatusResponse } from '../api/types';
 import { fetchStatsHistory } from '../api/client';
 
+export type TimeWindow = 15 | 60 | 300 | 900 | 3600 | 21600;
+
 export interface DataPoint {
   time: string;
   t: number;
@@ -92,7 +94,7 @@ export function useNetHistory(status: StatusResponse | null) {
 
   const current = (() => {
     const h = historyRef.current;
-    if (h.length === 0) return { rx: 0, tx: 0, pkts: 0, wan_rx: 0, wan_tx: 0 };
+    if (h.length === 0) return { time: '', t: 0, rx: 0, tx: 0, pkts: 0, wan_rx: 0, wan_tx: 0 };
     return h[h.length - 1];
   })();
 

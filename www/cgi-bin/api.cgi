@@ -1497,7 +1497,7 @@ update_local_action() {
 
     : > /tmp/l2bridge-setup.log
     (
-        echo "[UPDATE LOCAL] Starting update on $(hostname)${branch:+ (branch: $branch)}..."
+        echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..."
         "$L2BRIDGE" update $branch_arg >> /tmp/l2bridge-setup.log 2>&1
         echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
     ) >> /tmp/l2bridge-setup.log 2>&1 &

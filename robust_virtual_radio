@@ -1824,7 +1824,14 @@ cmd_update() {
     fi
 
     git reset --hard "origin/$branch" 2>&1 || { log_error "Failed to apply updates"; exit 1; }
-    chmod +x "$repo_dir/robust_virtual_radio"
+
+    # Re-point symlink before anything else (handles script renames across updates)
+    local script_name
+    script_name=$(basename "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+    if [ -f "$repo_dir/$script_name" ]; then
+        chmod +x "$repo_dir/$script_name"
+        ln -sf "$repo_dir/$script_name" /usr/bin/rvr
+    fi
     chmod +x "$repo_dir/www/cgi-bin/"*.cgi 2>/dev/null
 
     # Clean stale git objects to reclaim storage
@@ -1836,10 +1843,6 @@ cmd_update() {
         cp "$repo_dir/packages/common/tap2tcp-aarch64" "$TAP2TCP_BINARY"
         chmod +x "$TAP2TCP_BINARY"
         log_info "Updated tap2tcp binary"
-    fi
-
-    if [ ! -L /usr/bin/rvr ] || [ "$(readlink -f /usr/bin/rvr)" != "$repo_dir/robust_virtual_radio" ]; then
-        ln -sf "$repo_dir/robust_virtual_radio" /usr/bin/rvr
     fi
 
     echo "  Updated: $old_hash -> $new_hash ($branch)"

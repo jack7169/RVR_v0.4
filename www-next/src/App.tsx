@@ -27,14 +27,30 @@ export default function App() {
   const { status, error, lastUpdate, refresh } = useStatus();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  // Latch: once we've seen update_available=true, keep showing banner
+  // until user dismisses (X button) or post-update reload clears it
+  const [updateSeen, setUpdateSeen] = useState<{ latest: string; branch: string } | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [suppressBanner, setSuppressBanner] = useState(() => {
     try { return sessionStorage.getItem('update-just-applied') === '1'; } catch { return false; }
   });
 
-  // Clear suppression once status confirms no update pending
+  useEffect(() => {
+    if (!status) return;
+    const v = status.version;
+    if (v.update_available && v.latest) {
+      setUpdateSeen({ latest: v.latest, branch: v.branch || 'main' });
+    } else if (updateSeen && !v.update_available && v.latest) {
+      // Server explicitly says no update with a valid latest — clear latch
+      setUpdateSeen(null);
+    }
+  }, [status, updateSeen]);
+
+  // Clear post-update suppression once status confirms no update pending
   useEffect(() => {
     if (suppressBanner && status && !status.version.update_available) {
       setSuppressBanner(false);
+      setUpdateSeen(null);
       try { sessionStorage.removeItem('update-just-applied'); } catch {}
     }
   }, [suppressBanner, status]);
@@ -49,13 +65,14 @@ export default function App() {
         version={status?.version}
       />
 
-      {status?.version.update_available && !suppressBanner && (
+      {updateSeen && !bannerDismissed && !suppressBanner && (
         <UpdateBanner
-          current={status.version.current}
-          latest={status.version.latest}
-          branch={status.version.branch || 'main'}
+          current={status?.version.current ?? ''}
+          latest={updateSeen.latest}
+          branch={updateSeen.branch}
           onUpdate={() => setUpdateModalOpen(true)}
           onRefresh={refresh}
+          onDismiss={() => setBannerDismissed(true)}
         />
       )}
 

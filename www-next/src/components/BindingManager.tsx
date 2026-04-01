@@ -543,6 +543,7 @@ export function BindingManager({ onRefresh }: Props) {
   const [filter, setFilter] = useState<Filter>('online');
   const [bindPeer, setBindPeer] = useState<DiscoveredPeer | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unbinding, setUnbinding] = useState<string | null>(null);
   const [manualIp, setManualIp] = useState('');
   const [settingsKey, setSettingsKey] = useState(0);
   const { toast } = useToast();
@@ -591,26 +592,32 @@ export function BindingManager({ onRefresh }: Props) {
   };
 
   const handleDelete = async (id: string) => {
+    setUnbinding(id);
     try {
       const profile = profiles?.profiles[id];
+      const unboundIp = profile?.tailscale_ip;
       await unbindAircraft(id);
       toast('Aircraft unbound', 'success');
-      // Optimistically clear is_bound on the matching peer so UI updates instantly
+      // Reload profiles (aircraft list) but keep discovery optimistic
+      const profs = await listAircraft();
+      setProfiles(profs);
+      // Optimistically clear is_bound on the matching peer
       // (discovery cache is stale until next background scan)
-      if (profile && discovery) {
+      if (unboundIp && discovery) {
         setDiscovery({
           ...discovery,
           peers: discovery.peers.map(p =>
-            p.ip === profile.tailscale_ip
+            p.ip === unboundIp
               ? { ...p, is_bound: false, bound_profile_id: undefined, bound_profile_name: undefined }
               : p
           ),
         });
       }
-      loadData();
       onRefresh();
     } catch {
       toast('Unbind failed', 'error');
+    } finally {
+      setUnbinding(null);
     }
   };
 
@@ -826,7 +833,7 @@ export function BindingManager({ onRefresh }: Props) {
               {/* Actions */}
               <div className="flex justify-center gap-2 mt-3">
                 <Button size="sm" variant="ghost" onClick={() => handleReconnect(profiles.active)}>Reconnect</Button>
-                <Button size="sm" variant="danger" onClick={() => handleDelete(profiles.active)}>Unbind</Button>
+                <Button size="sm" variant="danger" loading={unbinding === profiles.active} onClick={() => handleDelete(profiles.active)}>Unbind</Button>
               </div>
 
               {/* Other profiles (if any) */}
@@ -844,7 +851,7 @@ export function BindingManager({ onRefresh }: Props) {
                         </div>
                         <div className="flex gap-1">
                           <Button size="sm" variant="ghost" onClick={() => handleSetActive(id)}>Activate</Button>
-                          <Button size="sm" variant="danger" onClick={() => handleDelete(id)}>Remove</Button>
+                          <Button size="sm" variant="danger" loading={unbinding === id} onClick={() => handleDelete(id)}>Remove</Button>
                         </div>
                       </div>
                     );

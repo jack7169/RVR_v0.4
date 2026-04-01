@@ -8,22 +8,11 @@ interface Props {
   branch: string;
   onUpdate: () => void;
   onRefresh: () => void;
+  onDismiss: () => void;
 }
 
-export function UpdateBanner({ current, latest, branch, onUpdate, onRefresh }: Props) {
-  const [dismissed, setDismissed] = useState(() => {
-    try {
-      return sessionStorage.getItem('update-dismissed') === latest;
-    } catch { return false; }
-  });
+export function UpdateBanner({ current, latest, branch, onUpdate, onRefresh, onDismiss }: Props) {
   const [checking, setChecking] = useState(false);
-
-  if (dismissed) return null;
-
-  const dismiss = () => {
-    setDismissed(true);
-    try { sessionStorage.setItem('update-dismissed', latest); } catch {}
-  };
 
   const handleCheck = async () => {
     setChecking(true);
@@ -60,7 +49,7 @@ export function UpdateBanner({ current, latest, branch, onUpdate, onRefresh }: P
             Update Now
           </button>
           <button
-            onClick={dismiss}
+            onClick={onDismiss}
             className="text-text-secondary hover:text-text-primary transition-colors"
           >
             <X className="w-4 h-4" />

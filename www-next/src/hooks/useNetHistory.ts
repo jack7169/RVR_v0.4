@@ -58,8 +58,8 @@ export function useNetHistory(status: StatusResponse | null) {
     const rx = status.network_stats.rvr_bridge.rx_bytes;
     const tx = status.network_stats.rvr_bridge.tx_bytes;
     const pkts = status.network_stats.rvr_bridge.rx_packets + status.network_stats.rvr_bridge.tx_packets;
-    const wan_rx = status.network_stats.wan.rx_bytes;
-    const wan_tx = status.network_stats.wan.tx_bytes;
+    const wan_rx = status.network_stats.wan?.rx_bytes ?? 0;
+    const wan_tx = status.network_stats.wan?.tx_bytes ?? 0;
 
     const prev = prevRef.current;
     if (prev && now > prev.t) {

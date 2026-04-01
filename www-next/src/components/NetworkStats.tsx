@@ -146,7 +146,10 @@ function StatsChart({ data, rxKey, txKey, rxColor, txColor, rxGradId, txGradId }
 export function NetworkStats({ status }: Props) {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
   const { getWindow, current, revision } = useNetHistory(status);
-  const { rvr_bridge, wan } = status.network_stats;
+  const { rvr_bridge } = status.network_stats;
+  // Handle old backend responses that send 'tailscale' instead of 'wan'
+  const wan = (status.network_stats as Record<string, unknown>).wan as typeof status.network_stats.wan
+    ?? { interface: 'unknown', rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0 };
   const { bridge_filter } = status;
 
   void revision;

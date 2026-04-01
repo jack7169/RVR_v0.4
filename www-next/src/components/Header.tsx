@@ -16,11 +16,10 @@ interface HeaderProps {
   connected: boolean;
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
-  onProfileChange: () => void;
   version?: VersionInfo;
 }
 
-export function Header({ connected, activeTab, onTabChange, onProfileChange, version }: HeaderProps) {
+export function Header({ connected, activeTab, onTabChange, version }: HeaderProps) {
   const [checking, setChecking] = useState(false);
   const versionHash = version?.current && version.current !== 'unknown' ? version.current : null;
   const branch = version?.branch || 'main';

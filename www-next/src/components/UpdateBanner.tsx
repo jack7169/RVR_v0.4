@@ -7,11 +7,10 @@ interface Props {
   latest: string;
   branch: string;
   onUpdate: () => void;
-  onRefresh: () => void;
   onDismiss: () => void;
 }
 
-export function UpdateBanner({ current, latest, branch, onUpdate, onRefresh, onDismiss }: Props) {
+export function UpdateBanner({ current, latest, branch, onUpdate, onDismiss }: Props) {
   const [checking, setChecking] = useState(false);
 
   const handleCheck = async () => {

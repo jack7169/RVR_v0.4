@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
+import { useState, useEffect, lazy, Suspense, Component, type ReactNode } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -85,7 +85,6 @@ export default function App() {
         connected={status?.connection.established ?? false}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        onProfileChange={refresh}
         version={status?.version}
       />
 
@@ -95,7 +94,6 @@ export default function App() {
           latest={updateSeen.latest}
           branch={updateSeen.branch}
           onUpdate={() => setUpdateModalOpen(true)}
-          onRefresh={refresh}
           onDismiss={() => setBannerDismissed(true)}
         />
       )}

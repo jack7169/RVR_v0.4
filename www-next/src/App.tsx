@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -8,6 +8,30 @@ import { AircraftStatusCard } from './components/AircraftStatusCard';
 import { BridgeControls } from './components/BridgeControls';
 import { CaptureControls } from './components/CaptureControls';
 import { FileManager } from './components/FileManager';
+
+// Recharts has an internal react-redux subscription bug that can cause
+// infinite render loops (React #185). This boundary contains the crash
+// and auto-recovers on the next status poll cycle.
+class ChartBoundary extends Component<
+  { children: ReactNode; resetKey: unknown },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidUpdate(prev: { resetKey: unknown }) {
+    if (this.state.hasError && prev.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
+  }
+  render() {
+    if (this.state.hasError) return (
+      <div className="bg-bg-card border border-border rounded-xl p-8 text-center text-sm text-text-secondary">
+        Charts recovering...
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 // Lazy load heavy components
 const NetworkStats = lazy(() => import('./components/NetworkStats').then(m => ({ default: m.NetworkStats })));
@@ -102,9 +126,11 @@ export default function App() {
               <AircraftStatusCard status={status} />
             </div>
 
-            <Suspense fallback={<Skeleton height="h-80" />}>
-              <NetworkStats status={status} />
-            </Suspense>
+            <ChartBoundary resetKey={lastUpdate}>
+              <Suspense fallback={<Skeleton height="h-80" />}>
+                <NetworkStats status={status} />
+              </Suspense>
+            </ChartBoundary>
 
             <Suspense fallback={<Skeleton height="h-48" />}>
               <OutagePanel />

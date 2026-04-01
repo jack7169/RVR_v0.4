@@ -1670,7 +1670,7 @@ cmd_uninstall() {
     echo "[*] Removing RVR..."
     rm -f /usr/bin/rvr
 
-    rm -f /tmp/rvr* /tmp/tap2tcp* /tmp/rvr-*
+    rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
 
     if [ -d "$script_dir" ]; then
         echo "[*] Removing repository ($script_dir)..."

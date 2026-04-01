@@ -1611,12 +1611,12 @@ cmd_uninstall() {
             uci commit uhttpd
         fi
         if uci get firewall.rvr_webui >/dev/null 2>&1; then
+            # Remove from running nftables directly (no full firewall reload —
+            # reload triggers kernel panic in QCA PPE/tun driver on GL-BE3600)
+            local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
+            [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
             uci delete firewall.rvr_webui
             uci commit firewall
-            # Do NOT reload firewall — on GL-BE3600 with kmod-tun loaded,
-            # firewall reload triggers kernel panic in QCA PPE driver
-            # (tun_register_offload_stats_callback null ptr). Rule deletion
-            # takes effect on next reboot.
         fi
         rm -rf "$WEBUI_ROOT"
         /etc/init.d/uhttpd start 2>/dev/null || true
@@ -1816,6 +1816,8 @@ cmd_webui_remove() {
     fi
 
     if uci get firewall.rvr_webui >/dev/null 2>&1; then
+        local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
+        [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
         uci delete firewall.rvr_webui
         uci commit firewall
     fi

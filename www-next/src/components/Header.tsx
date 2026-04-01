@@ -31,7 +31,9 @@ export function Header({ connected, activeTab, onTabChange, onProfileChange, ver
     setChecking(true);
     try {
       await checkUpdate();
-      onProfileChange(); // triggers status refresh
+      // Status poll (3s interval) picks up the result —
+      // forcing an immediate invalidation causes a render storm
+      // that crashes Recharts' internal redux subscriptions.
     } catch {} finally {
       setChecking(false);
     }

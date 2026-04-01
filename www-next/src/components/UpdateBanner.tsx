@@ -18,7 +18,8 @@ export function UpdateBanner({ current, latest, branch, onUpdate, onRefresh, onD
     setChecking(true);
     try {
       await checkUpdate();
-      onRefresh();
+      // Let the 3s status poll pick up the result naturally —
+      // immediate invalidation crashes Recharts' redux internals.
     } catch {} finally {
       setChecking(false);
     }

@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 199309L
-#include "../include/l2tap.h"
+#include "../include/tap2tcp.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -11,7 +11,7 @@
 #define EPOLL_TIMEOUT_MS  100
 
 /* Find stream by fd */
-static struct stream *find_stream_by_fd(struct l2tap_ctx *ctx, int fd)
+static struct stream *find_stream_by_fd(struct tap2tcp_ctx *ctx, int fd)
 {
     for (int i = 0; i < MAX_STREAMS; i++) {
         if (ctx->streams[i].fd == fd && ctx->streams[i].state != STREAM_FREE)
@@ -21,7 +21,7 @@ static struct stream *find_stream_by_fd(struct l2tap_ctx *ctx, int fd)
 }
 
 /* Handle TAP readable: read Ethernet frame, classify, send to stream */
-static void handle_tap_read(struct l2tap_ctx *ctx)
+static void handle_tap_read(struct tap2tcp_ctx *ctx)
 {
     uint8_t frame[MAX_FRAME_LEN];
 
@@ -159,7 +159,7 @@ static void handle_tap_read(struct l2tap_ctx *ctx)
 }
 
 /* Handle stream readable: read TCP data, extract frames, write to TAP */
-static void handle_stream_read(struct l2tap_ctx *ctx, struct stream *s)
+static void handle_stream_read(struct tap2tcp_ctx *ctx, struct stream *s)
 {
     /* Read into stream's read buffer */
     size_t space = READ_BUF_SIZE - s->rlen;
@@ -227,7 +227,7 @@ static void handle_stream_read(struct l2tap_ctx *ctx, struct stream *s)
 }
 
 /* Handle connect completion */
-static void handle_connect_complete(struct l2tap_ctx *ctx, struct stream *s)
+static void handle_connect_complete(struct tap2tcp_ctx *ctx, struct stream *s)
 {
     int err = 0;
     socklen_t len = sizeof(err);
@@ -256,7 +256,7 @@ static void handle_connect_complete(struct l2tap_ctx *ctx, struct stream *s)
     }
 }
 
-int event_loop(struct l2tap_ctx *ctx)
+int event_loop(struct tap2tcp_ctx *ctx)
 {
     struct epoll_event events[MAX_EVENTS];
     time_t now;

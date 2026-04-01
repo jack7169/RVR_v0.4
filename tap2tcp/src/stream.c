@@ -1,4 +1,4 @@
-#include "../include/l2tap.h"
+#include "../include/tap2tcp.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -33,7 +33,7 @@ static void stream_init(struct stream *s, int slot)
     s->slot = slot;
 }
 
-int stream_find_free(struct l2tap_ctx *ctx)
+int stream_find_free(struct tap2tcp_ctx *ctx)
 {
     /* Slot 0 is reserved for broadcast/multicast */
     for (int i = 1; i < MAX_STREAMS; i++) {
@@ -43,7 +43,7 @@ int stream_find_free(struct l2tap_ctx *ctx)
     return -1;
 }
 
-int stream_listen(struct l2tap_ctx *ctx)
+int stream_listen(struct tap2tcp_ctx *ctx)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -89,7 +89,7 @@ int stream_listen(struct l2tap_ctx *ctx)
     return 0;
 }
 
-int stream_accept(struct l2tap_ctx *ctx)
+int stream_accept(struct tap2tcp_ctx *ctx)
 {
     struct sockaddr_in peer;
     socklen_t plen = sizeof(peer);
@@ -144,7 +144,7 @@ int stream_accept(struct l2tap_ctx *ctx)
     return idx;
 }
 
-int stream_connect(struct l2tap_ctx *ctx)
+int stream_connect(struct tap2tcp_ctx *ctx)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -213,7 +213,7 @@ int stream_connect(struct l2tap_ctx *ctx)
     return idx;
 }
 
-void stream_close(struct l2tap_ctx *ctx, int idx)
+void stream_close(struct tap2tcp_ctx *ctx, int idx)
 {
     if (idx < 0 || idx >= MAX_STREAMS)
         return;
@@ -257,7 +257,7 @@ void stream_close(struct l2tap_ctx *ctx, int idx)
     ctx->stream_count--;
 }
 
-int stream_flush(struct l2tap_ctx *ctx, int idx)
+int stream_flush(struct tap2tcp_ctx *ctx, int idx)
 {
     struct stream *s = &ctx->streams[idx];
     if (s->wlen == 0)

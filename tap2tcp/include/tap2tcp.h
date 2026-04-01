@@ -1,5 +1,5 @@
-#ifndef L2TAP_H
-#define L2TAP_H
+#ifndef TAP2TCP_H
+#define TAP2TCP_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -78,7 +78,7 @@ struct flow_entry {
     struct flow_entry *next;   /* hash chain */
 };
 
-struct l2tap_config {
+struct tap2tcp_config {
     int       mode;            /* MODE_SERVER or MODE_CLIENT */
     char      listen_addr[64]; /* server: address to listen on */
     int       listen_port;
@@ -93,8 +93,8 @@ struct l2tap_config {
     int       hard_latency_ms; /* drop frames older than this (default 2000) */
 };
 
-struct l2tap_ctx {
-    struct l2tap_config  cfg;
+struct tap2tcp_ctx {
+    struct tap2tcp_config  cfg;
     int                  tap_fd;
     int                  epoll_fd;
     int                  listen_fd;     /* server mode only */
@@ -141,25 +141,25 @@ int  frame_read(struct stream *s, uint8_t *buf, uint16_t *len, uint16_t *flags);
 
 /* ── flow.c ────────────────────────────────────────────────────────────── */
 
-int  flow_lookup(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst);
-int  flow_assign(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst);
-int  flow_assign_to(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst, int stream_idx);
-void flow_gc(struct l2tap_ctx *ctx);
-void flow_remove_stream(struct l2tap_ctx *ctx, int stream_idx);
-void flow_cleanup(struct l2tap_ctx *ctx);
+int  flow_lookup(struct tap2tcp_ctx *ctx, const uint8_t *src, const uint8_t *dst);
+int  flow_assign(struct tap2tcp_ctx *ctx, const uint8_t *src, const uint8_t *dst);
+int  flow_assign_to(struct tap2tcp_ctx *ctx, const uint8_t *src, const uint8_t *dst, int stream_idx);
+void flow_gc(struct tap2tcp_ctx *ctx);
+void flow_remove_stream(struct tap2tcp_ctx *ctx, int stream_idx);
+void flow_cleanup(struct tap2tcp_ctx *ctx);
 
 /* ── stream.c ──────────────────────────────────────────────────────────── */
 
-int  stream_listen(struct l2tap_ctx *ctx);
-int  stream_accept(struct l2tap_ctx *ctx);
-int  stream_connect(struct l2tap_ctx *ctx);
-void stream_close(struct l2tap_ctx *ctx, int idx);
-int  stream_flush(struct l2tap_ctx *ctx, int idx);
-int  stream_find_free(struct l2tap_ctx *ctx);
+int  stream_listen(struct tap2tcp_ctx *ctx);
+int  stream_accept(struct tap2tcp_ctx *ctx);
+int  stream_connect(struct tap2tcp_ctx *ctx);
+void stream_close(struct tap2tcp_ctx *ctx, int idx);
+int  stream_flush(struct tap2tcp_ctx *ctx, int idx);
+int  stream_find_free(struct tap2tcp_ctx *ctx);
 
 /* ── loop.c ────────────────────────────────────────────────────────────── */
 
-int  event_loop(struct l2tap_ctx *ctx);
+int  event_loop(struct tap2tcp_ctx *ctx);
 
 /* ── log.c ─────────────────────────────────────────────────────────────── */
 
@@ -168,12 +168,12 @@ enum log_level { LOG_ERROR, LOG_WARN, LOG_INFO, LOG_DEBUG };
 void log_set_verbose(int v);
 void log_msg(enum log_level level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
-void stats_dump(struct l2tap_ctx *ctx);
-void stats_write_file(struct l2tap_ctx *ctx);
+void stats_dump(struct tap2tcp_ctx *ctx);
+void stats_write_file(struct tap2tcp_ctx *ctx);
 
 #define LOG_ERR(...)   log_msg(LOG_ERROR, __VA_ARGS__)
 #define LOG_WARN(...)  log_msg(LOG_WARN, __VA_ARGS__)
 #define LOG_INFO(...)  log_msg(LOG_INFO, __VA_ARGS__)
 #define LOG_DBG(...)   log_msg(LOG_DEBUG, __VA_ARGS__)
 
-#endif /* L2TAP_H */
+#endif /* TAP2TCP_H */

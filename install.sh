@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh - RVR L2 Bridge v4.0 installer
+# install.sh - RVR RVR v4.0 installer
 # Run on any fresh OpenWrt device to download, install, and configure RVR.
 #
 # One-liner:
@@ -19,7 +19,7 @@ REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 INSTALL_DIR="/root/RVR_v0.4"
 MIN_DISK_MB=40
 
-# Package lists (no tinc — replaced by l2tap static binary)
+# Package lists (no tinc — replaced by tap2tcp static binary)
 COMMON_PKGS="kcptun-config kmod-tun libopenssl3 liblzo2 zlib git git-http libcurl4"
 GCS_PKGS="kcptun-server sshpass"
 AIRCRAFT_PKGS="kcptun-client"
@@ -173,7 +173,7 @@ download_repo() {
         return 0
     fi
 
-    info "Downloading RVR L2 Bridge v4.0..."
+    info "Downloading RVR RVR v4.0..."
     local tmp_tar="/tmp/rvr-download.tar.gz"
     rm -f "$tmp_tar"
 
@@ -204,7 +204,7 @@ download_repo() {
 
     rm -rf "$INSTALL_DIR"
     mv "/tmp/$extracted" "$INSTALL_DIR"
-    chmod +x "$INSTALL_DIR/l2bridge"
+    chmod +x "$INSTALL_DIR/rvr"
     chmod +x "$INSTALL_DIR/www/cgi-bin/"*.cgi 2>/dev/null || true
 
     ok "Extracted to $INSTALL_DIR"
@@ -213,19 +213,19 @@ download_repo() {
 #############################################
 # PHASE 2: INSTALL PACKAGES
 #############################################
-install_l2tap() {
-    if [ -x /usr/bin/l2tap ]; then
-        ok "l2tap already installed"
+install_tap2tcp() {
+    if [ -x /usr/bin/tap2tcp ]; then
+        ok "tap2tcp already installed"
         return 0
     fi
 
-    local binary="$INSTALL_DIR/packages/common/l2tap-aarch64"
+    local binary="$INSTALL_DIR/packages/common/tap2tcp-aarch64"
     if [ -f "$binary" ]; then
-        cp "$binary" /usr/bin/l2tap
-        chmod +x /usr/bin/l2tap
-        ok "l2tap binary installed"
+        cp "$binary" /usr/bin/tap2tcp
+        chmod +x /usr/bin/tap2tcp
+        ok "tap2tcp binary installed"
     else
-        fail "l2tap binary not found at $binary"
+        fail "tap2tcp binary not found at $binary"
     fi
 }
 
@@ -235,8 +235,8 @@ install_packages() {
 
     mkdir -p "$pkg_dir/common" "$pkg_dir/gcs" "$pkg_dir/aircraft"
 
-    # Install l2tap binary first
-    install_l2tap
+    # Install tap2tcp binary first
+    install_tap2tcp
 
     # Check if bundled .ipk files exist
     local has_bundles=0
@@ -281,10 +281,10 @@ install_packages() {
         aircraft) verify_pkg="kcptun-client" ;;
     esac
 
-    if [ -x /usr/bin/l2tap ] && command -v "$verify_pkg" >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    if [ -x /usr/bin/tap2tcp ] && command -v "$verify_pkg" >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
         ok "$role packages installed (including git)"
     else
-        [ -x /usr/bin/l2tap ] || warn "l2tap binary missing"
+        [ -x /usr/bin/tap2tcp ] || warn "tap2tcp binary missing"
         command -v "$verify_pkg" >/dev/null 2>&1 || warn "$verify_pkg missing"
         command -v git >/dev/null 2>&1 || warn "git missing"
         fail "Package verification failed — check network and retry"
@@ -337,29 +337,29 @@ setup_git_repo() {
     git remote add origin "$REPO_URL"
     git fetch --depth=1 -q origin "$REPO_BRANCH" 2>&1 || {
         warn "Git fetch failed (network issue or private repo)"
-        warn "l2bridge update will not work until this is resolved"
+        warn "rvr update will not work until this is resolved"
         return 0
     }
     git checkout -b "$REPO_BRANCH" 2>/dev/null || true
     git reset --hard "origin/$REPO_BRANCH" 2>/dev/null || true
     # Save branch for update tracking
-    mkdir -p /etc/l2bridge
-    echo "$REPO_BRANCH" > /etc/l2bridge/branch
+    mkdir -p /etc/rvr
+    echo "$REPO_BRANCH" > /etc/rvr/branch
     ok "Git repository initialized"
 }
 
 #############################################
 # PHASE 4: INSTALL L2BRIDGE
 #############################################
-install_l2bridge_cli() {
-    info "Installing l2bridge to /usr/bin/..."
-    ln -sf "$INSTALL_DIR/l2bridge" /usr/bin/l2bridge
-    chmod +x "$INSTALL_DIR/l2bridge"
+install_rvr_cli() {
+    info "Installing rvr to /usr/bin/..."
+    ln -sf "$INSTALL_DIR/rvr" /usr/bin/rvr
+    chmod +x "$INSTALL_DIR/rvr"
 
-    if l2bridge help >/dev/null 2>&1; then
-        ok "l2bridge installed -> $INSTALL_DIR/l2bridge"
+    if rvr help >/dev/null 2>&1; then
+        ok "rvr installed -> $INSTALL_DIR/rvr"
     else
-        fail "l2bridge installation failed"
+        fail "rvr installation failed"
     fi
 }
 
@@ -374,18 +374,18 @@ refresh_packages() {
     info "Updating package feeds (this may take ~30 seconds)..."
     opkg update >/dev/null 2>&1 || { warn "opkg update failed"; return 1; }
 
-    # Keep l2tap binary if it exists
-    local l2tap_backup=""
-    if [ -f "$pkg_dir/common/l2tap-aarch64" ]; then
-        l2tap_backup="/tmp/l2tap-aarch64.bak"
-        cp "$pkg_dir/common/l2tap-aarch64" "$l2tap_backup"
+    # Keep tap2tcp binary if it exists
+    local tap2tcp_backup=""
+    if [ -f "$pkg_dir/common/tap2tcp-aarch64" ]; then
+        tap2tcp_backup="/tmp/tap2tcp-aarch64.bak"
+        cp "$pkg_dir/common/tap2tcp-aarch64" "$tap2tcp_backup"
     fi
 
     rm -rf "$pkg_dir/common" "$pkg_dir/gcs" "$pkg_dir/aircraft"
     mkdir -p "$pkg_dir/common" "$pkg_dir/gcs" "$pkg_dir/aircraft"
 
-    # Restore l2tap binary
-    [ -n "$l2tap_backup" ] && [ -f "$l2tap_backup" ] && mv "$l2tap_backup" "$pkg_dir/common/l2tap-aarch64"
+    # Restore tap2tcp binary
+    [ -n "$tap2tcp_backup" ] && [ -f "$tap2tcp_backup" ] && mv "$tap2tcp_backup" "$pkg_dir/common/tap2tcp-aarch64"
 
     local tmp_dl="/tmp/rvr-pkg-download"
     rm -rf "$tmp_dl" && mkdir -p "$tmp_dl"
@@ -424,7 +424,7 @@ refresh_packages() {
 # Kernel: ${kernel:-unknown}
 #
 # common/ - shared dependencies (GCS + Aircraft)
-#   l2tap-aarch64 (static binary, not .ipk)
+#   tap2tcp-aarch64 (static binary, not .ipk)
 EOF
     for f in "$pkg_dir/common/"*.ipk; do
         [ -f "$f" ] && echo "#   $(basename "$f")" >> "$pkg_dir/manifest.txt"
@@ -452,7 +452,7 @@ EOF
 
     echo ""
     ok "Packages refreshed:"
-    echo "    common/:   $common_count packages + l2tap binary"
+    echo "    common/:   $common_count packages + tap2tcp binary"
     echo "    gcs/:      $gcs_count packages"
     echo "    aircraft/: $aircraft_count packages"
     echo "    Total: $(du -sh "$pkg_dir" | awk '{print $1}')"
@@ -473,8 +473,8 @@ run_bridge_setup() {
     printf "Enter aircraft name [aircraft]: "
     read aircraft_name
     aircraft_name="${aircraft_name:-aircraft}"
-    info "Running: l2bridge setup $aircraft_ip $aircraft_name"
-    l2bridge setup "$aircraft_ip" "$aircraft_name"
+    info "Running: rvr setup $aircraft_ip $aircraft_name"
+    rvr setup "$aircraft_ip" "$aircraft_name"
 }
 
 #############################################
@@ -484,7 +484,7 @@ show_menu() {
     while true; do
         echo ""
         echo "=========================================="
-        echo "  RVR L2 Bridge v4.0 Installer"
+        echo "  RVR RVR v4.0 Installer"
         echo "=========================================="
         echo "  Device: $(cat /proc/sys/kernel/hostname 2>/dev/null || echo 'unknown')"
         echo "  Kernel: $(uname -r)"
@@ -505,19 +505,19 @@ show_menu() {
         case "$choice" in
             1)
                 install_packages gcs
-                install_l2bridge_cli
+                install_rvr_cli
                 echo ""
                 ok "GCS setup complete. Use option 3 for Web UI, option 4 to configure bridge."
                 ;;
             2)
                 install_packages aircraft
-                install_l2bridge_cli
+                install_rvr_cli
                 echo ""
                 ok "Aircraft setup complete. The GCS will configure this device during bridge setup."
                 ;;
             3)
                 info "Installing Web UI..."
-                l2bridge webui-install
+                rvr webui-install
                 ;;
             4)
                 run_bridge_setup
@@ -527,7 +527,7 @@ show_menu() {
                 ;;
             6)
                 info "Running uninstall..."
-                l2bridge uninstall
+                rvr uninstall
                 echo "Installer will now exit."
                 exit 0
                 ;;
@@ -547,7 +547,7 @@ show_menu() {
 #############################################
 echo ""
 echo "=========================================="
-echo "  RVR L2 Bridge v4.0 Installer"
+echo "  RVR RVR v4.0 Installer"
 echo "=========================================="
 echo ""
 
@@ -569,22 +569,22 @@ if [ -n "$ROLE" ]; then
     install_packages "$ROLE"
     bootstrap_git
     setup_git_repo
-    install_l2bridge_cli
+    install_rvr_cli
 
     # Always install web UI — required for peer discovery endpoint
     if [ -z "$NO_WEBUI" ]; then
-        l2bridge webui-install
+        rvr webui-install
     fi
 
     echo ""
-    ok "Installation complete! Run 'l2bridge help' to get started."
+    ok "Installation complete! Run 'rvr help' to get started."
     exit 0
 fi
 
 # Interactive: bootstrap git before menu
 bootstrap_git
 setup_git_repo
-install_l2bridge_cli
+install_rvr_cli
 
 # Interactive menu
 show_menu

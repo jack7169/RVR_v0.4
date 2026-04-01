@@ -46,7 +46,7 @@ export function Header({ connected, activeTab, onTabChange, onProfileChange, ver
               'w-3 h-3 rounded-full animate-[pulse-dot_2s_infinite]',
               connected ? 'bg-success' : 'bg-error',
             )} />
-            <h1 className="text-lg font-semibold">L2 Bridge</h1>
+            <h1 className="text-lg font-semibold">Robust Virtual Radio</h1>
           </div>
           {versionHash && (
             <div className="flex items-center gap-1.5">

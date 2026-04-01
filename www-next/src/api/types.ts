@@ -6,15 +6,15 @@ export interface StatusResponse {
     tailscale_status: 'connected' | 'disconnected';
     services: {
       kcptun_server: 'running' | 'stopped';
-      l2tap: 'running' | 'stopped';
-      l2bridge_interface: 'up' | 'down';
+      tap2tcp: 'running' | 'stopped';
+      rvr_bridge_interface: 'up' | 'down';
     };
     interface: {
       name: string;
       mtu: number;
       state: 'up' | 'down';
     };
-    l2tap_streams: {
+    tap2tcp_streams: {
       active: number;
       max: number;
       flows: number;
@@ -47,8 +47,8 @@ export interface StatusResponse {
     };
     services: {
       kcptun_client: 'running' | 'stopped' | 'unknown';
-      l2tap: 'running' | 'stopped' | 'unknown';
-      l2bridge_interface: 'up' | 'down' | 'unknown';
+      tap2tcp: 'running' | 'stopped' | 'unknown';
+      rvr_bridge_interface: 'up' | 'down' | 'unknown';
     };
   };
   connection: {
@@ -57,7 +57,7 @@ export interface StatusResponse {
   };
   network_stats: {
     timestamp_ms: number;
-    l2bridge: {
+    rvr_bridge: {
       rx_bytes: number;
       tx_bytes: number;
       rx_packets: number;
@@ -242,8 +242,8 @@ export interface BindingDetail {
   created: string;
   last_used: string;
   status: 'connected' | 'disconnected' | 'unreachable';
-  l2tap_streams?: number;
-  l2tap_flows?: number;
+  tap2tcp_streams?: number;
+  tap2tcp_flows?: number;
   wg_rx_bytes?: number;
   wg_tx_bytes?: number;
 }

@@ -44,9 +44,9 @@ export function GcsStatusCard({ status }: Props) {
       </StatusRow>
       <StatusRow label={<IconLabel icon={Wifi} label="VPN" />}><ServiceStatus value={gcs.tailscale_status} /></StatusRow>
       <StatusRow label={<IconLabel icon={Server} label={kcptunLabel} />}><ServiceStatus value={gcs.services.kcptun_server} /></StatusRow>
-      <StatusRow label={<IconLabel icon={Layers} label="L2TAP" />}><ServiceStatus value={gcs.services.l2tap} /></StatusRow>
-      <StatusRow label={<IconLabel icon={Network} label="Bridge Interface" />}><ServiceStatus value={gcs.services.l2bridge_interface} /></StatusRow>
-      <StatusRow label={<IconLabel icon={Layers} label="Streams" />}>{gcs.l2tap_streams.active}/{gcs.l2tap_streams.max} ({gcs.l2tap_streams.flows} flows)</StatusRow>
+      <StatusRow label={<IconLabel icon={Layers} label="Tap2TCP" />}><ServiceStatus value={gcs.services.tap2tcp} /></StatusRow>
+      <StatusRow label={<IconLabel icon={Network} label="Bridge Interface" />}><ServiceStatus value={gcs.services.rvr_bridge_interface} /></StatusRow>
+      <StatusRow label={<IconLabel icon={Layers} label="Streams" />}>{gcs.tap2tcp_streams.active}/{gcs.tap2tcp_streams.max} ({gcs.tap2tcp_streams.flows} flows)</StatusRow>
       <StatusRow label={<IconLabel icon={Shield} label="Watchdog" />}><ServiceStatus value={gcs.watchdog} /></StatusRow>
     </Card>
   );

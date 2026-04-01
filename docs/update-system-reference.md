@@ -10,9 +10,9 @@ On embedded devices with limited flash (300MB user space), repeated `git fetch` 
 - Stale web UI assets (JS/CSS chunks) accumulate on each build (~200KB/update)
 - No pre-flight space check means a half-complete update can fill flash and brick the device
 
-### Solution (l2bridge `cmd_update`)
+### Solution (rvr `cmd_update`)
 
-**File:** `l2bridge` — `cmd_update()` function
+**File:** `rvr` — `cmd_update()` function
 
 **Key changes:**
 
@@ -54,7 +54,7 @@ git reflog expire --expire=now --all 2>/dev/null
 git gc --prune=all -q 2>/dev/null
 
 # Save branch for update tracking
-echo "$REPO_BRANCH" > /etc/l2bridge/branch
+echo "$REPO_BRANCH" > /etc/rvr/branch
 ```
 
 ### Storage Impact
@@ -74,16 +74,16 @@ echo "$REPO_BRANCH" > /etc/l2bridge/branch
 
 | File | Content | Example |
 |------|---------|---------|
-| `/etc/l2bridge/version` | Short commit hash | `abc1234` |
-| `/etc/l2bridge/branch` | Current branch name | `main` |
-| `/etc/l2bridge/repo` | GitHub owner/repo | `jack7169/RVR_v0.4` |
+| `/etc/rvr/version` | Short commit hash | `abc1234` |
+| `/etc/rvr/branch` | Current branch name | `main` |
+| `/etc/rvr/repo` | GitHub owner/repo | `jack7169/RVR_v0.4` |
 
 ### CLI
 
 ```sh
-l2bridge update                    # Update current branch
-l2bridge update --branch dev       # Switch to dev branch
-l2bridge branches                  # List available remote branches
+rvr update                    # Update current branch
+rvr update --branch dev       # Switch to dev branch
+rvr branches                  # List available remote branches
 ```
 
 ### CGI API Endpoints
@@ -132,7 +132,7 @@ Added `"git_branch": "main"` to JSON response. Consumed by `api.cgi` discovery p
 
 #### Dynamic Log Rotation (Watchdog)
 
-**File:** `l2bridge` — watchdog cron script (runs every minute)
+**File:** `rvr` — watchdog cron script (runs every minute)
 
 ```sh
 FLASH_FREE_KB=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
@@ -143,14 +143,14 @@ SNMP_CAP=2097152
 # Low space: aggressive rotation
 if [ "${FLASH_FREE_KB:-999999}" -lt 20480 ]; then
     LOG_CAP=262144; SNMP_CAP=262144  # 256KB
-    logger -t l2bridge -p daemon.warn "Low flash: ${FLASH_FREE_KB}KB free"
+    logger -t rvr -p daemon.warn "Low flash: ${FLASH_FREE_KB}KB free"
 fi
 
 # Critical: emergency cleanup
 if [ "${FLASH_FREE_KB:-999999}" -lt 5120 ]; then
     LOG_CAP=65536; SNMP_CAP=65536    # 64KB
-    rm -f /tmp/l2bridge-capture.pcap
-    logger -t l2bridge -p daemon.err "CRITICAL: ${FLASH_FREE_KB}KB flash free"
+    rm -f /tmp/rvr-capture.pcap
+    logger -t rvr -p daemon.err "CRITICAL: ${FLASH_FREE_KB}KB flash free"
 fi
 ```
 
@@ -166,7 +166,7 @@ fi
 
 ```sh
 # Stats CSV: max 1 write per 3 seconds
-STATS_FILE="/tmp/l2bridge-stats.csv"
+STATS_FILE="/tmp/rvr-stats.csv"
 if [ -f "$STATS_FILE" ]; then
     LAST_WRITE=$(date -r "$STATS_FILE" +%s 2>/dev/null || echo 0)
     NOW=$(date +%s)
@@ -174,7 +174,7 @@ if [ -f "$STATS_FILE" ]; then
 fi
 
 # Remote status: cached 10 seconds (prevents SSH storms)
-REMOTE_CACHE="/tmp/l2bridge-remote-status"
+REMOTE_CACHE="/tmp/rvr-remote-status"
 if [ -f "$REMOTE_CACHE" ]; then
     CACHE_AGE=$(( $(date +%s) - $(date -r "$REMOTE_CACHE" +%s 2>/dev/null || echo 0) ))
     [ "$CACHE_AGE" -lt 10 ] && USE_CACHED=1
@@ -199,18 +199,18 @@ trap cleanup EXIT INT TERM HUP
 
 #### Orphan Process Cleanup
 
-**File:** `l2bridge` — watchdog
+**File:** `rvr` — watchdog
 
 ```sh
 # Kill orphaned grep/tail (parent PID = 1 means orphaned)
-for pid in $(pgrep -f "grep.*l2bridge\|l2tap\|kcptun" 2>/dev/null); do
+for pid in $(pgrep -f "grep.*rvr\|tap2tcp\|kcptun" 2>/dev/null); do
     ppid=$(awk '/PPid/ {print $2}' /proc/$pid/status 2>/dev/null)
     [ "$ppid" = "1" ] && kill "$pid" 2>/dev/null
 done
 
 # Clean stale temp files (older than 1 hour)
-find /tmp -name 'l2bridge-disc-*' -mmin +60 -delete 2>/dev/null
-find /tmp -name 'l2bridge-logs-*.fifo' -mmin +60 -delete 2>/dev/null
+find /tmp -name 'rvr-disc-*' -mmin +60 -delete 2>/dev/null
+find /tmp -name 'rvr-logs-*.fifo' -mmin +60 -delete 2>/dev/null
 ```
 
 #### Discovery Scan Timeout
@@ -241,7 +241,7 @@ Critical issues discovered on BusyBox ash that affect both RVR and Starnav:
 
 | Issue | Symptom | Fix |
 |-------|---------|-----|
-| `pgrep -x` broken | Always returns empty | Use `pgrep l2tap` without `-x` |
+| `pgrep -x` broken | Always returns empty | Use `pgrep tap2tcp` without `-x` |
 | `date +%s%3N` no milliseconds | Same as `date +%s` | `$(($(date +%s) * 1000))` |
 | No `nohup` | Background from CGI fails | Plain `command &` |
 | `sort -o file file` broken | Truncates file | Sort to temp, then mv |
@@ -288,9 +288,9 @@ Critical issues discovered on BusyBox ash that affect both RVR and Starnav:
 
 | File | What it does |
 |------|-------------|
-| `l2bridge:cmd_update()` | CLI update with shallow fetch, gc, space check, branch arg |
-| `l2bridge:cmd_branches()` | List remote branches |
-| `l2bridge` watchdog section | Dynamic log rotation, orphan killer, temp cleanup |
+| `rvr:cmd_update()` | CLI update with shallow fetch, gc, space check, branch arg |
+| `rvr:cmd_branches()` | List remote branches |
+| `rvr` watchdog section | Dynamic log rotation, orphan killer, temp cleanup |
 | `install.sh` | Shallow fetch on install, saves branch config |
 | `www/cgi-bin/api.cgi` | update_local, update_remote, check_update, list_branches |
 | `www/cgi-bin/status.cgi` | Branch-aware version check via GitHub API |

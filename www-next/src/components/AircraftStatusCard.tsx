@@ -42,8 +42,8 @@ export function AircraftStatusCard({ status }: Props) {
         </span>
       </StatusRow>
       <StatusRow label={<IconLabel icon={Server} label={role === 'aircraft' ? 'KCPtun Server' : 'KCPtun Client'} />}><ServiceStatus value={aircraft.services.kcptun_client} /></StatusRow>
-      <StatusRow label={<IconLabel icon={Layers} label="L2TAP" />}><ServiceStatus value={aircraft.services.l2tap} /></StatusRow>
-      <StatusRow label={<IconLabel icon={Network} label="Bridge Interface" />}><ServiceStatus value={aircraft.services.l2bridge_interface} /></StatusRow>
+      <StatusRow label={<IconLabel icon={Layers} label="Tap2TCP" />}><ServiceStatus value={aircraft.services.tap2tcp} /></StatusRow>
+      <StatusRow label={<IconLabel icon={Network} label="Bridge Interface" />}><ServiceStatus value={aircraft.services.rvr_bridge_interface} /></StatusRow>
     </Card>
   );
 }

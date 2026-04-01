@@ -1,4 +1,4 @@
-#include "../include/l2tap.h"
+#include "../include/tap2tcp.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
@@ -28,7 +28,7 @@ void log_msg(enum log_level level, const char *fmt, ...)
     char ts[32];
     strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", tm);
 
-    fprintf(stderr, "l2tap[%s] %s: ", ts, level_str[level]);
+    fprintf(stderr, "tap2tcp[%s] %s: ", ts, level_str[level]);
 
     va_list ap;
     va_start(ap, fmt);
@@ -39,9 +39,9 @@ void log_msg(enum log_level level, const char *fmt, ...)
     fflush(stderr);
 }
 
-void stats_dump(struct l2tap_ctx *ctx)
+void stats_dump(struct tap2tcp_ctx *ctx)
 {
-    LOG_INFO("=== l2tap stats ===");
+    LOG_INFO("=== tap2tcp stats ===");
     LOG_INFO("mode=%s streams=%d/%d flows=%d",
              ctx->cfg.mode == MODE_SERVER ? "server" : "client",
              ctx->stream_count, MAX_STREAMS, ctx->flow_count);
@@ -62,7 +62,7 @@ void stats_dump(struct l2tap_ctx *ctx)
     LOG_INFO("===================");
 }
 
-void stats_write_file(struct l2tap_ctx *ctx)
+void stats_write_file(struct tap2tcp_ctx *ctx)
 {
     if (ctx->cfg.stats_file[0] == '\0')
         return;

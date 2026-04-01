@@ -24,7 +24,7 @@ sh install.sh --role gcs
 # Aircraft router:
 sh install.sh --role aircraft`}
           </pre>
-          <p className="mt-2">The installer downloads RVR, installs packages (kcptun, l2tap), sets up the web UI, and enables the discovery endpoint.</p>
+          <p className="mt-2">The installer downloads RVR, installs packages (kcptun, tap2tcp), sets up the web UI, and enables the discovery endpoint.</p>
         </div>
 
         <div>
@@ -44,7 +44,7 @@ sh install.sh --role aircraft`}
           <h4 className="font-medium text-text-primary mb-1">3. Verify the Bridge</h4>
           <p>After binding completes, check the <strong>Dashboard</strong> tab:</p>
           <ul className="list-disc list-inside space-y-1 mt-2">
-            <li><strong>GCS Status</strong>: KCPtun Server and L2TAP should be "running"</li>
+            <li><strong>GCS Status</strong>: KCPtun Server and Tap2TCP should be "running"</li>
             <li><strong>Aircraft Status</strong>: Should show "Reachable" with services running</li>
             <li><strong>Connection</strong>: Should show "Connected" with a duration timer</li>
             <li><strong>Streams</strong>: Active streams increase as devices communicate across the bridge</li>
@@ -132,8 +132,8 @@ function Troubleshooting() {
         <div>
           <h4 className="font-medium text-error mb-1">Bridge not forwarding traffic</h4>
           <ul className="list-disc list-inside space-y-1">
-            <li>Check that L2TAP and KCPtun are both "running" on both sides</li>
-            <li>Check "L2Bridge Interface" is "up" — if "down", the TAP device wasn't created</li>
+            <li>Check that Tap2TCP and KCPtun are both "running" on both sides</li>
+            <li>Check "RVR Interface" is "up" — if "down", the TAP device wasn't created</li>
             <li>STP convergence may still be in progress — wait up to 45 seconds after setup</li>
             <li>Check firewall: nftables bridge filter should be active. If "Inactive", re-run setup</li>
             <li>Verify both devices can ping each other via VPN IP</li>
@@ -174,7 +174,7 @@ function Troubleshooting() {
           <h4 className="font-medium text-error mb-1">Health check: FAILED</h4>
           <ul className="list-disc list-inside space-y-1">
             <li>The watchdog runs every minute and auto-restarts services when issues are detected</li>
-            <li>Check the watchdog log: <code className="bg-bg-primary px-1 rounded">cat /tmp/l2bridge-watchdog.log</code></li>
+            <li>Check the watchdog log: <code className="bg-bg-primary px-1 rounded">cat /tmp/rvr-watchdog.log</code></li>
             <li>Common causes: VPN disconnected, kcptun crashed, interface deleted by another process</li>
             <li>Manual recovery: click Stop then Start in Bridge Controls</li>
           </ul>

@@ -325,11 +325,11 @@ const FIELD_HELP: Record<keyof LinkSettings, { label: string; help: string }> = 
   },
   kcp_smuxbuf: {
     label: 'Smux Buffer',
-    help: 'Smux multiplexer overall buffer size in bytes. Controls how much data can be buffered across ALL streams combined. 8MB default. This is the total buffer shared by all l2tap streams through the tunnel.',
+    help: 'Smux multiplexer overall buffer size in bytes. Controls how much data can be buffered across ALL streams combined. 8MB default. This is the total buffer shared by all tap2tcp streams through the tunnel.',
   },
   kcp_streambuf: {
     label: 'Stream Buffer',
-    help: 'Per-stream buffer size in bytes within the smux multiplexer. Each l2tap flow (MAC pair direction) gets its own stream with this buffer. 2MB default. Larger buffers help absorb bursts from individual devices (e.g., camera video). Total memory = streambuf x active_streams.',
+    help: 'Per-stream buffer size in bytes within the smux multiplexer. Each tap2tcp flow (MAC pair direction) gets its own stream with this buffer. 2MB default. Larger buffers help absorb bursts from individual devices (e.g., camera video). Total memory = streambuf x active_streams.',
   },
   bridge_mtu: {
     label: 'Bridge MTU',

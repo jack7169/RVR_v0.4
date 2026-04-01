@@ -53,7 +53,7 @@ export function NetworkStats({ status }: Props) {
   const [allHistory, setAllHistory] = useState<DataPoint[]>([]);
   const fetchedRef = useRef(false);
   const { getWindow, current, count: liveCount } = useNetHistory(status);
-  const { l2bridge, tailscale } = status.network_stats;
+  const { rvr_bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
   // Fetch full 6h server history ONCE on mount, then slice client-side
@@ -111,27 +111,27 @@ export function NetworkStats({ status }: Props) {
           icon={<ArrowDown className="w-4 h-4 text-emerald-400" />}
           label="RX Rate"
           value={formatRate(current.rx)}
-          sub={`${formatBytes(l2bridge.rx_bytes)} total`}
+          sub={`${formatBytes(rvr_bridge.rx_bytes)} total`}
           color="bg-emerald-500/10"
         />
         <StatTile
           icon={<ArrowUp className="w-4 h-4 text-blue-400" />}
           label="TX Rate"
           value={formatRate(current.tx)}
-          sub={`${formatBytes(l2bridge.tx_bytes)} total`}
+          sub={`${formatBytes(rvr_bridge.tx_bytes)} total`}
           color="bg-blue-500/10"
         />
         <StatTile
           icon={<Activity className="w-4 h-4 text-amber-400" />}
           label="Packet Rate"
           value={`${formatPackets(Math.round(current.pkts))}/s`}
-          sub={`${formatPackets(l2bridge.rx_packets + l2bridge.tx_packets)} total`}
+          sub={`${formatPackets(rvr_bridge.rx_packets + rvr_bridge.tx_packets)} total`}
           color="bg-amber-500/10"
         />
         <StatTile
           icon={<AlertTriangle className="w-4 h-4 text-red-400" />}
           label="Errors / Drops"
-          value={`${l2bridge.rx_errors + l2bridge.tx_errors} / ${l2bridge.rx_dropped + l2bridge.tx_dropped}`}
+          value={`${rvr_bridge.rx_errors + rvr_bridge.tx_errors} / ${rvr_bridge.rx_dropped + rvr_bridge.tx_dropped}`}
           sub={bridge_filter.active ? `${formatPackets(bridge_filter.dropped_packets)} filtered` : 'Filter inactive'}
           color="bg-red-500/10"
         />

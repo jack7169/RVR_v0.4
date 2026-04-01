@@ -1,4 +1,4 @@
-#include "../include/l2tap.h"
+#include "../include/tap2tcp.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -25,7 +25,7 @@ static int mac_pair_eq(const struct flow_entry *e,
            memcmp(e->dst_mac, dst, MAC_LEN) == 0;
 }
 
-int flow_lookup(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst)
+int flow_lookup(struct tap2tcp_ctx *ctx, const uint8_t *src, const uint8_t *dst)
 {
     uint32_t bucket = flow_hash(src, dst);
     struct flow_entry *e = ctx->flow_table[bucket];
@@ -40,7 +40,7 @@ int flow_lookup(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst)
     return -1;  /* not found */
 }
 
-int flow_assign_to(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst, int stream_idx)
+int flow_assign_to(struct tap2tcp_ctx *ctx, const uint8_t *src, const uint8_t *dst, int stream_idx)
 {
     struct flow_entry *e = calloc(1, sizeof(*e));
     if (!e) {
@@ -67,7 +67,7 @@ int flow_assign_to(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst
     return stream_idx;
 }
 
-int flow_assign(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst)
+int flow_assign(struct tap2tcp_ctx *ctx, const uint8_t *src, const uint8_t *dst)
 {
     int idx = stream_find_free(ctx);
     if (idx < 0) {
@@ -77,7 +77,7 @@ int flow_assign(struct l2tap_ctx *ctx, const uint8_t *src, const uint8_t *dst)
     return flow_assign_to(ctx, src, dst, idx);
 }
 
-void flow_gc(struct l2tap_ctx *ctx)
+void flow_gc(struct tap2tcp_ctx *ctx)
 {
     time_t now = time(NULL);
 
@@ -102,7 +102,7 @@ void flow_gc(struct l2tap_ctx *ctx)
     }
 }
 
-void flow_remove_stream(struct l2tap_ctx *ctx, int stream_idx)
+void flow_remove_stream(struct tap2tcp_ctx *ctx, int stream_idx)
 {
     for (int b = 0; b < FLOW_BUCKETS; b++) {
         struct flow_entry **pp = &ctx->flow_table[b];
@@ -119,7 +119,7 @@ void flow_remove_stream(struct l2tap_ctx *ctx, int stream_idx)
     }
 }
 
-void flow_cleanup(struct l2tap_ctx *ctx)
+void flow_cleanup(struct tap2tcp_ctx *ctx)
 {
     for (int b = 0; b < FLOW_BUCKETS; b++) {
         struct flow_entry *e = ctx->flow_table[b];

@@ -1,7 +1,7 @@
 #!/bin/sh
 #
-# L2Bridge Web UI - Log Streaming API (Server-Sent Events)
-# Streams l2bridge-related logs in real-time
+# RVR Web UI - Log Streaming API (Server-Sent Events)
+# Streams RVR-related logs in real-time
 #
 
 # SSE headers
@@ -12,8 +12,8 @@ echo "X-Accel-Buffering: no"
 echo ""
 
 # Log files to monitor
-SETUP_LOG="/tmp/l2bridge-setup.log"
-WATCHDOG_LOG="/tmp/l2bridge-watchdog.log"
+SETUP_LOG="/tmp/rvr-setup.log"
+WATCHDOG_LOG="/tmp/rvr-watchdog.log"
 
 # Helper: escape string for JSON
 json_escape() {
@@ -69,7 +69,7 @@ if [ -f "$WATCHDOG_LOG" ]; then
 fi
 
 # System log history (filtered)
-logread 2>/dev/null | grep -iE "l2bridge|l2tap|kcptun" | tail -20 | while IFS= read -r line; do
+logread 2>/dev/null | grep -iE "rvr|tap2tcp|kcptun" | tail -20 | while IFS= read -r line; do
     [ -n "$line" ] && send_log "$line" "system"
 done
 
@@ -89,14 +89,14 @@ cleanup() {
     done
     # Kill entire process group as failsafe
     kill 0 2>/dev/null
-    rm -f "/tmp/l2bridge-logs-$$.fifo"
+    rm -f "/tmp/rvr-logs-$$.fifo"
     exit 0
 }
 
 trap cleanup EXIT INT TERM HUP
 
 # Create a FIFO for aggregating log sources
-LOG_FIFO="/tmp/l2bridge-logs-$$.fifo"
+LOG_FIFO="/tmp/rvr-logs-$$.fifo"
 mkfifo "$LOG_FIFO" 2>/dev/null || true
 
 # Start background log tailers
@@ -115,9 +115,9 @@ mkfifo "$LOG_FIFO" 2>/dev/null || true
         done &
     fi
 
-    # Stream system logs (filtered for l2bridge-related entries)
+    # Stream system logs (filtered for RVR-related entries)
     # Note: BusyBox grep doesn't support --line-buffered, but while read handles it
-    logread -f 2>/dev/null | grep -iE "l2bridge|l2tap|kcptun" | while IFS= read -r line; do
+    logread -f 2>/dev/null | grep -iE "rvr|tap2tcp|kcptun" | while IFS= read -r line; do
         echo "system|$line"
     done &
 

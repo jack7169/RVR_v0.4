@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# L2Bridge Device Discovery Endpoint
+# RVR Device Discovery Endpoint
 # Returns this device's identity and service status as JSON.
-# Probed by other l2bridge devices for peer discovery.
+# Probed by other RVR devices for peer discovery.
 # VPN-agnostic — works over any routable IP network.
 #
 
@@ -12,8 +12,8 @@ echo ""
 
 HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown")
 VERSION="4.0"
-GIT_VERSION=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
-GIT_BRANCH=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+GIT_VERSION=$(cat /etc/rvr/version 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
 
 # Determine role from installed init scripts
 ROLE="unknown"
@@ -22,7 +22,7 @@ ROLE="unknown"
 
 # Service status
 KCPTUN_STATUS="stopped"
-L2TAP_STATUS="stopped"
+TAP2TCP_STATUS="stopped"
 IFACE_STATUS="down"
 
 if [ "$ROLE" = "gcs" ]; then
@@ -30,16 +30,16 @@ if [ "$ROLE" = "gcs" ]; then
 else
     pgrep -f kcptun-client >/dev/null 2>&1 && KCPTUN_STATUS="running"
 fi
-pgrep l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
-ip link show l2bridge >/dev/null 2>&1 && IFACE_STATUS="up"
+pgrep tap2tcp >/dev/null 2>&1 && TAP2TCP_STATUS="running"
+ip link show rvr_bridge >/dev/null 2>&1 && IFACE_STATUS="up"
 
-# l2tap stats
-L2TAP_STREAMS=0
-L2TAP_FLOWS=0
-if [ -f /tmp/l2tap.stats ]; then
-    . /tmp/l2tap.stats
-    L2TAP_STREAMS="${STREAMS:-0}"
-    L2TAP_FLOWS="${FLOWS:-0}"
+# tap2tcp stats
+TAP2TCP_STREAMS=0
+TAP2TCP_FLOWS=0
+if [ -f /tmp/tap2tcp.stats ]; then
+    . /tmp/tap2tcp.stats
+    TAP2TCP_STREAMS="${STREAMS:-0}"
+    TAP2TCP_FLOWS="${FLOWS:-0}"
 fi
 
 # Uptime in seconds
@@ -52,14 +52,14 @@ cat << EOF
   "version": "$VERSION",
   "git_version": "$GIT_VERSION",
   "git_branch": "$GIT_BRANCH",
-  "l2bridge_installed": true,
+  "rvr_installed": true,
   "services": {
     "kcptun": "$KCPTUN_STATUS",
-    "l2tap": "$L2TAP_STATUS",
-    "l2bridge_interface": "$IFACE_STATUS"
+    "tap2tcp": "$TAP2TCP_STATUS",
+    "rvr_bridge_interface": "$IFACE_STATUS"
   },
-  "l2tap_streams": $L2TAP_STREAMS,
-  "l2tap_flows": $L2TAP_FLOWS,
+  "tap2tcp_streams": $TAP2TCP_STREAMS,
+  "tap2tcp_flows": $TAP2TCP_FLOWS,
   "uptime": $UPTIME
 }
 EOF

@@ -1,11 +1,11 @@
 #!/bin/sh
 #
-# Kuruka RVR L2 Bridge Tool v4.0
+# Kuruka RVR RVR Tool v4.0
 # Multi-stream L2 bridge between GCS and Aircraft over Tailscale
-# Replaces tinc with l2tap for per-flow multi-stream tunneling
+# Replaces tinc with tap2tcp for per-flow multi-stream tunneling
 # Supports full 1500 MTU for device compatibility (cameras, etc.)
 #
-# Usage: l2bridge <command> [options]
+# Usage: rvr <command> [options]
 #
 
 set -e
@@ -13,7 +13,7 @@ set -e
 #############################################
 # LOGGING
 #############################################
-SETUP_LOG="/tmp/l2bridge-setup.log"
+SETUP_LOG="/tmp/rvr-setup.log"
 
 # Initialize log file for setup commands
 init_setup_log() {
@@ -22,7 +22,7 @@ init_setup_log() {
     exec > >(tee -a "$SETUP_LOG") 2>&1
     echo ""
     echo "========================================="
-    echo "  L2Bridge Setup Log - $(date)"
+    echo "  RVR Setup Log - $(date)"
     echo "========================================="
 }
 
@@ -39,10 +39,10 @@ log_cmd() {
 #############################################
 KCPTUN_PORT="4000"
 KCPTUN_LOCAL_PORT="4001"
-L2TAP_PORT="655"
-KCPTUN_KEY="KurukaRVRL2BridgeKey2024"
-NETWORK_NAME="l2bridge"
-L2TAP_BINARY="/usr/bin/l2tap"
+TAP2TCP_PORT="655"
+KCPTUN_KEY="KurukaRVRRVRKey2024"
+NETWORK_NAME="rvr_bridge"
+TAP2TCP_BINARY="/usr/bin/tap2tcp"
 
 # MTU Configuration
 BRIDGE_MTU="1500"
@@ -66,9 +66,9 @@ SERVICE_RESTART_DELAY=5
 HEALTH_CHECK_INTERVAL=30
 STP_TIMEOUT=45
 
-STATE_FILE="/etc/l2bridge.conf"
-HEALTH_FILE="/tmp/l2bridge.health"
-STATS_FILE="/tmp/l2tap.stats"
+STATE_FILE="/etc/rvr.conf"
+HEALTH_FILE="/tmp/rvr.health"
+STATS_FILE="/tmp/tap2tcp.stats"
 SSH_KEY="/root/.ssh/id_dropbear"
 SSH_PUBKEY="/root/.ssh/id_dropbear.pub"
 
@@ -136,23 +136,23 @@ ensure_pkg_local() {
     command -v "$binary" >/dev/null 2>&1
 }
 
-# Install l2tap binary from bundled packages
-ensure_l2tap_local() {
-    [ -x "$L2TAP_BINARY" ] && return 0
+# Install tap2tcp binary from bundled packages
+ensure_tap2tcp_local() {
+    [ -x "$TAP2TCP_BINARY" ] && return 0
 
     local pkg_dir
     pkg_dir=$(_get_pkg_dir)
 
-    if [ -f "$pkg_dir/common/l2tap-aarch64" ]; then
-        cp "$pkg_dir/common/l2tap-aarch64" "$L2TAP_BINARY"
-        chmod +x "$L2TAP_BINARY"
-        echo "    l2tap binary installed."
+    if [ -f "$pkg_dir/common/tap2tcp-aarch64" ]; then
+        cp "$pkg_dir/common/tap2tcp-aarch64" "$TAP2TCP_BINARY"
+        chmod +x "$TAP2TCP_BINARY"
+        echo "    tap2tcp binary installed."
     else
-        echo "    ERROR: l2tap binary not found in $pkg_dir/common/"
+        echo "    ERROR: tap2tcp binary not found in $pkg_dir/common/"
         return 1
     fi
 
-    [ -x "$L2TAP_BINARY" ]
+    [ -x "$TAP2TCP_BINARY" ]
 }
 
 ensure_packages_local() {
@@ -161,7 +161,7 @@ ensure_packages_local() {
     pkg_dir=$(_get_pkg_dir)
 
     local need_install=""
-    [ -x "$L2TAP_BINARY" ] || need_install=1
+    [ -x "$TAP2TCP_BINARY" ] || need_install=1
     case "$role" in
         gcs)      command -v kcptun-server >/dev/null 2>&1 || need_install=1 ;;
         aircraft)  command -v kcptun-client >/dev/null 2>&1 || need_install=1 ;;
@@ -169,12 +169,12 @@ ensure_packages_local() {
 
     [ -z "$need_install" ] && { echo "    Packages already installed."; return 0; }
 
-    # Install l2tap binary
-    ensure_l2tap_local
+    # Install tap2tcp binary
+    ensure_tap2tcp_local
 
     # Install .ipk packages
     if [ -d "$pkg_dir/common" ]; then
-        opkg install "$pkg_dir/common/"*.ipk --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring|l2tap" || true
+        opkg install "$pkg_dir/common/"*.ipk --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring|tap2tcp" || true
         case "$role" in
             gcs)
                 [ -d "$pkg_dir/gcs" ] && opkg install "$pkg_dir/gcs/"*.ipk --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
@@ -187,7 +187,7 @@ ensure_packages_local() {
 
     # Verify
     local missing=""
-    [ -x "$L2TAP_BINARY" ] || missing="l2tap $missing"
+    [ -x "$TAP2TCP_BINARY" ] || missing="tap2tcp $missing"
     case "$role" in
         gcs)      command -v kcptun-server >/dev/null 2>&1 || missing="kcptun-server $missing" ;;
         aircraft)  command -v kcptun-client >/dev/null 2>&1 || missing="kcptun-client $missing" ;;
@@ -197,14 +197,14 @@ ensure_packages_local() {
         echo "    Bundled packages incomplete, falling back to opkg feeds..."
         opkg update >/dev/null 2>&1 || true
         for pkg in $missing; do
-            [ "$pkg" = "l2tap" ] && continue  # l2tap is not an opkg package
+            [ "$pkg" = "tap2tcp" ] && continue  # tap2tcp is not an opkg package
             opkg install "$pkg" >/dev/null 2>&1 || true
         done
     fi
 
     # Final verification
     local still_missing=""
-    [ -x "$L2TAP_BINARY" ] || still_missing="l2tap $still_missing"
+    [ -x "$TAP2TCP_BINARY" ] || still_missing="tap2tcp $still_missing"
     case "$role" in
         gcs)      command -v kcptun-server >/dev/null 2>&1 || still_missing="kcptun-server $still_missing" ;;
         aircraft)  command -v kcptun-client >/dev/null 2>&1 || still_missing="kcptun-client $still_missing" ;;
@@ -220,7 +220,7 @@ ensure_packages_remote() {
 
     local remote_check=$(ssh_aircraft "$ip" '
         l=0; k=0
-        [ -x /usr/bin/l2tap ] && l=1
+        [ -x /usr/bin/tap2tcp ] && l=1
         command -v kcptun-client >/dev/null 2>&1 && k=1
         echo "${l}${k}"
     ' 2>/dev/null | tr -d '[:space:]')
@@ -236,9 +236,9 @@ ensure_packages_remote() {
     done
 
     if [ -n "$pkg_dir" ]; then
-        # Copy l2tap binary first
-        echo "    Copying l2tap binary to aircraft..."
-        cat "$pkg_dir/common/l2tap-aarch64" | dbclient -i "$SSH_KEY" -y root@"$ip" "cat > /usr/bin/l2tap && chmod +x /usr/bin/l2tap" 2>/dev/null
+        # Copy tap2tcp binary first
+        echo "    Copying tap2tcp binary to aircraft..."
+        cat "$pkg_dir/common/tap2tcp-aarch64" | dbclient -i "$SSH_KEY" -y root@"$ip" "cat > /usr/bin/tap2tcp && chmod +x /usr/bin/tap2tcp" 2>/dev/null
 
         # Copy .ipk packages
         local pkg_count=$(find "$pkg_dir/common" "$pkg_dir/aircraft" -name '*.ipk' 2>/dev/null | wc -l)
@@ -265,19 +265,19 @@ ensure_packages_remote() {
     # Verify
     ssh_aircraft "$ip" '
         missing=""
-        [ -x /usr/bin/l2tap ] || missing="l2tap $missing"
+        [ -x /usr/bin/tap2tcp ] || missing="tap2tcp $missing"
         command -v kcptun-client >/dev/null 2>&1 || missing="kcptun-client $missing"
 
         if [ -n "$missing" ]; then
             echo "    Falling back to opkg feeds..."
             opkg update >/dev/null 2>&1 || true
             for pkg in $missing; do
-                [ "$pkg" = "l2tap" ] && continue
+                [ "$pkg" = "tap2tcp" ] && continue
                 opkg install "$pkg" >/dev/null 2>&1 || true
             done
         fi
 
-        [ -x /usr/bin/l2tap ] && command -v kcptun-client >/dev/null 2>&1 || {
+        [ -x /usr/bin/tap2tcp ] && command -v kcptun-client >/dev/null 2>&1 || {
             echo "ERROR: Required packages missing on aircraft"
             exit 1
         }
@@ -289,9 +289,9 @@ ensure_packages_remote() {
 #############################################
 print_usage() {
     cat << 'EOF'
-Kuruka RVR L2 Bridge Tool v4.0
+Kuruka RVR RVR Tool v4.0
 
-Usage: l2bridge <command> [options]
+Usage: rvr <command> [options]
 
   Aircraft can be specified by Tailscale IP, profile name, or profile ID.
 
@@ -330,7 +330,7 @@ log_msg() {
     local msg="$2"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[$timestamp] [$level] $msg"
-    logger -t l2bridge -p "daemon.$level" "$msg" 2>/dev/null || true
+    logger -t rvr -p "daemon.$level" "$msg" 2>/dev/null || true
 }
 
 log_info() { log_msg "info" "$1"; }
@@ -386,29 +386,29 @@ wait_for_bridge() {
     log_info "Waiting for bridge convergence (max ${timeout}s)..."
 
     while [ $elapsed -lt $timeout ]; do
-        # Check if l2bridge interface exists and is in forwarding state
-        if ip link show l2bridge >/dev/null 2>&1; then
+        # Check if rvr interface exists and is in forwarding state
+        if ip link show rvr_bridge >/dev/null 2>&1; then
             local state
-            state=$(cat /sys/class/net/l2bridge/brport/state 2>/dev/null)
+            state=$(cat /sys/class/net/rvr_bridge/brport/state 2>/dev/null)
             # Bridge port states: 0=disabled, 1=listening, 2=learning, 3=forwarding
             if [ "$state" = "3" ]; then
                 log_info "Bridge forwarding after ${elapsed}s"
                 # Sync connection timestamp to both sides
                 local conn_ts=$(date +%s)
-                echo "$conn_ts" > /tmp/l2bridge.connected
+                echo "$conn_ts" > /tmp/rvr.connected
                 local peer_ip=$(get_aircraft_ip 2>/dev/null)
-                [ -n "$peer_ip" ] && ssh_aircraft "$peer_ip" "echo $conn_ts > /tmp/l2bridge.connected" 2>/dev/null || true
+                [ -n "$peer_ip" ] && ssh_aircraft "$peer_ip" "echo $conn_ts > /tmp/rvr.connected" 2>/dev/null || true
                 return 0
             fi
             # If STP is disabled, port goes straight to forwarding (state file may not exist)
-            if [ ! -f /sys/class/net/l2bridge/brport/state ]; then
+            if [ ! -f /sys/class/net/rvr_bridge/brport/state ]; then
                 # No STP state file — check if interface is UP and in bridge
-                if bridge link show dev l2bridge 2>/dev/null | grep -q "state"; then
+                if bridge link show dev rvr_bridge 2>/dev/null | grep -q "state"; then
                     log_info "Bridge ready after ${elapsed}s (no STP)"
                     local conn_ts=$(date +%s)
-                    echo "$conn_ts" > /tmp/l2bridge.connected
+                    echo "$conn_ts" > /tmp/rvr.connected
                     local peer_ip=$(get_aircraft_ip 2>/dev/null)
-                    [ -n "$peer_ip" ] && ssh_aircraft "$peer_ip" "echo $conn_ts > /tmp/l2bridge.connected" 2>/dev/null || true
+                    [ -n "$peer_ip" ] && ssh_aircraft "$peer_ip" "echo $conn_ts > /tmp/rvr.connected" 2>/dev/null || true
                     return 0
                 fi
             fi
@@ -426,7 +426,7 @@ resolve_aircraft() {
     local input="$1"
     [ -z "$input" ] && return
     echo "$input" | grep -qE '^100\.' && { echo "$input"; return; }
-    local aircraft_file="/etc/l2bridge/aircraft.json"
+    local aircraft_file="/etc/rvr/aircraft.json"
     [ -f "$aircraft_file" ] || return
     local ip=$(awk -v id="$input" '
         /"'"$input"'"[[:space:]]*:/ { found=1 }
@@ -474,9 +474,9 @@ save_aircraft_ip() {
 save_aircraft_profile() {
     local name="$1"
     local ip="$2"
-    local aircraft_file="/etc/l2bridge/aircraft.json"
+    local aircraft_file="/etc/rvr/aircraft.json"
 
-    mkdir -p /etc/l2bridge
+    mkdir -p /etc/rvr
 
     local id=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
@@ -620,7 +620,7 @@ ssh_aircraft() {
 check_local_health() {
     # Only check services that have been configured (init scripts exist)
     # If setup hasn't been run, there's nothing to check
-    [ -f /etc/init.d/kcptun-server ] || [ -f /etc/init.d/kcptun-client ] || [ -f /etc/init.d/l2tap ] || return 0
+    [ -f /etc/init.d/kcptun-server ] || [ -f /etc/init.d/kcptun-client ] || [ -f /etc/init.d/tap2tcp ] || return 0
 
     local issues=""
     is_tailscale_ready || issues="${issues}tailscale_down,"
@@ -631,8 +631,8 @@ check_local_health() {
         pgrep -f kcptun-client > /dev/null 2>&1 || issues="${issues}kcptun_down,"
     fi
 
-    [ -f /etc/init.d/l2tap ] && ! pgrep l2tap > /dev/null 2>&1 && issues="${issues}l2tap_down,"
-    [ -f /etc/init.d/l2tap ] && ! ip link show l2bridge > /dev/null 2>&1 && issues="${issues}interface_missing,"
+    [ -f /etc/init.d/tap2tcp ] && ! pgrep tap2tcp > /dev/null 2>&1 && issues="${issues}tap2tcp_down,"
+    [ -f /etc/init.d/tap2tcp ] && ! ip link show rvr_bridge > /dev/null 2>&1 && issues="${issues}interface_missing,"
 
     [ -n "$issues" ] && { echo "${issues%,}"; return 1; }
     return 0
@@ -672,7 +672,7 @@ start_local_services() {
         return 1
     fi
 
-    /etc/init.d/l2tap start 2>/dev/null || true
+    /etc/init.d/tap2tcp start 2>/dev/null || true
     sleep 2
 
     log_info "Local services started"
@@ -691,7 +691,7 @@ start_aircraft_services() {
         [ -f /etc/kcptun/client.json ] && sed -i 's|\"remoteaddr\": \"[^\"]*:|\"remoteaddr\": \"$GCS_IP:|g' /etc/kcptun/client.json
         /etc/init.d/kcptun-client start 2>/dev/null || true
         sleep 3
-        /etc/init.d/l2tap start 2>/dev/null || true
+        /etc/init.d/tap2tcp start 2>/dev/null || true
     " 2>/dev/null || { log_warn "Could not start aircraft services"; return 1; }
 
     log_info "Aircraft services started"
@@ -699,35 +699,35 @@ start_aircraft_services() {
 
 stop_local_services() {
     log_info "Stopping local services..."
-    /etc/init.d/l2tap stop 2>/dev/null || true
+    /etc/init.d/tap2tcp stop 2>/dev/null || true
     /etc/init.d/kcptun-server stop 2>/dev/null || true
-    # Cleanup in case l2tap-down didn't run
-    nft delete table bridge l2bridge_filter 2>/dev/null || true
-    ip link set l2bridge nomaster 2>/dev/null || true
-    ip link del l2bridge 2>/dev/null || true
+    # Cleanup in case tap2tcp-down didn't run
+    nft delete table bridge rvr_filter 2>/dev/null || true
+    ip link set rvr_bridge nomaster 2>/dev/null || true
+    ip link del rvr 2>/dev/null || true
     iptables -D OUTPUT -o br-lan -p udp --dport 41641 -j DROP 2>/dev/null || true
     iptables -D OUTPUT -o br-lan -p udp --sport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -i l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -o l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -i l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -o l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
 }
 
 stop_aircraft_services() {
     local AIRCRAFT_IP="$1"
     log_info "Stopping aircraft services..."
     check_aircraft_reachable "$AIRCRAFT_IP" && ssh_aircraft "$AIRCRAFT_IP" '
-        /etc/init.d/l2tap stop 2>/dev/null || true
+        /etc/init.d/tap2tcp stop 2>/dev/null || true
         /etc/init.d/kcptun-client stop 2>/dev/null || true
-        nft delete table bridge l2bridge_filter 2>/dev/null || true
-        ip link set l2bridge nomaster 2>/dev/null || true
-        ip link del l2bridge 2>/dev/null || true
+        nft delete table bridge rvr_filter 2>/dev/null || true
+        ip link set rvr_bridge nomaster 2>/dev/null || true
+        ip link del rvr 2>/dev/null || true
         iptables -D OUTPUT -o br-lan -p udp --dport 41641 -j DROP 2>/dev/null || true
         iptables -D OUTPUT -o br-lan -p udp --sport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -i l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -o l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -i l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -o l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
     ' 2>/dev/null || true
 }
 
@@ -771,7 +771,7 @@ do_health_check() {
                     return 1
                 fi
                 ;;
-            *kcptun_down*|*l2tap_down*|*interface_missing*)
+            *kcptun_down*|*tap2tcp_down*|*interface_missing*)
                 restart_needed=1
                 ;;
         esac
@@ -804,10 +804,10 @@ do_health_check() {
 cmd_watchdog_install() {
     log_info "Installing watchdog..."
 
-    cat > /etc/l2bridge-watchdog.sh << 'WATCHDOG'
+    cat > /etc/rvr-watchdog.sh << 'WATCHDOG'
 #!/bin/sh
-LOCK="/tmp/l2bridge-watchdog.lock"
-LOG="/tmp/l2bridge-watchdog.log"
+LOCK="/tmp/rvr-watchdog.lock"
+LOG="/tmp/rvr-watchdog.log"
 
 [ -f "$LOCK" ] && kill -0 $(cat "$LOCK") 2>/dev/null && exit 0
 echo $$ > "$LOCK"
@@ -815,7 +815,7 @@ trap "rm -f $LOCK" EXIT
 
 # Dynamic log rotation based on available space
 FLASH_FREE_KB=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
-TMP_USED_KB=$(du -sk /tmp/l2bridge* /tmp/kcptun* 2>/dev/null | awk '{s+=$1} END {print s+0}')
+TMP_USED_KB=$(du -sk /tmp/rvr* /tmp/kcptun* 2>/dev/null | awk '{s+=$1} END {print s+0}')
 
 LOG_CAP=2097152    # 2MB default (generous history)
 SNMP_CAP=2097152   # 2MB default
@@ -823,13 +823,13 @@ SNMP_CAP=2097152   # 2MB default
 # Low space: aggressive rotation
 if [ "${FLASH_FREE_KB:-999999}" -lt 20480 ]; then
     LOG_CAP=262144; SNMP_CAP=262144  # 256KB each
-    logger -t l2bridge -p daemon.warn "Low flash: ${FLASH_FREE_KB}KB free"
+    logger -t rvr -p daemon.warn "Low flash: ${FLASH_FREE_KB}KB free"
 fi
 # Critical: emergency cleanup
 if [ "${FLASH_FREE_KB:-999999}" -lt 5120 ]; then
     LOG_CAP=65536; SNMP_CAP=65536    # 64KB each
-    rm -f /tmp/l2bridge-capture.pcap
-    logger -t l2bridge -p daemon.err "CRITICAL: ${FLASH_FREE_KB}KB flash free"
+    rm -f /tmp/rvr-capture.pcap
+    logger -t rvr -p daemon.err "CRITICAL: ${FLASH_FREE_KB}KB flash free"
 fi
 
 # Rotate logs
@@ -839,44 +839,44 @@ SNMP_LOG="/tmp/kcptun-snmp.log"
 [ -f "$SNMP_LOG" ] && [ "$(wc -c < "$SNMP_LOG" 2>/dev/null || echo 0)" -gt "$SNMP_CAP" ] && tail -2000 "$SNMP_LOG" > "$SNMP_LOG.tmp" && mv "$SNMP_LOG.tmp" "$SNMP_LOG"
 
 # Clean orphaned temp files (older than 1 hour)
-find /tmp -name 'l2bridge-disc-*' -mmin +60 -delete 2>/dev/null
-find /tmp -name 'l2bridge-logs-*.fifo' -mmin +60 -delete 2>/dev/null
+find /tmp -name 'rvr-disc-*' -mmin +60 -delete 2>/dev/null
+find /tmp -name 'rvr-logs-*.fifo' -mmin +60 -delete 2>/dev/null
 
 # Kill orphaned log streaming processes (grep/tail from closed SSE connections)
-for pid in $(pgrep -f "grep.*l2bridge\|l2tap\|kcptun" 2>/dev/null); do
+for pid in $(pgrep -f "grep.*rvr\|tap2tcp\|kcptun" 2>/dev/null); do
     # Only kill if parent is init (orphaned)
     ppid=$(awk '/PPid/ {print $2}' /proc/$pid/status 2>/dev/null)
     [ "$ppid" = "1" ] && kill "$pid" 2>/dev/null
 done
 
-/usr/bin/l2bridge monitor >> "$LOG" 2>&1
+/usr/bin/rvr monitor >> "$LOG" 2>&1
 
 [ -f "$LOG" ] && tail -100 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 WATCHDOG
-    chmod +x /etc/l2bridge-watchdog.sh
+    chmod +x /etc/rvr-watchdog.sh
 
-    if ! crontab -l 2>/dev/null | grep -q "l2bridge-watchdog"; then
-        (crontab -l 2>/dev/null; echo "* * * * * /etc/l2bridge-watchdog.sh") | crontab -
+    if ! crontab -l 2>/dev/null | grep -q "rvr-watchdog"; then
+        (crontab -l 2>/dev/null; echo "* * * * * /etc/rvr-watchdog.sh") | crontab -
     fi
 
     # Boot-time startup
-    if [ -f /etc/rc.local ] && ! grep -q "l2bridge" /etc/rc.local; then
+    if [ -f /etc/rc.local ] && ! grep -q "rvr_bridge" /etc/rc.local; then
         sed -i '/^exit 0/d' /etc/rc.local
         cat >> /etc/rc.local << 'RCLOCAL'
 
-# L2Bridge auto-start
-( sleep 60; timeout 30 /usr/bin/l2bridge monitor ) &
+# RVR auto-start
+( sleep 60; timeout 30 /usr/bin/rvr monitor ) &
 exit 0
 RCLOCAL
     fi
 
-    echo "Watchdog installed. View log: cat /tmp/l2bridge-watchdog.log"
+    echo "Watchdog installed. View log: cat /tmp/rvr-watchdog.log"
 }
 
 cmd_watchdog_remove() {
-    crontab -l 2>/dev/null | grep -v "l2bridge-watchdog" | crontab - 2>/dev/null || true
-    rm -f /etc/l2bridge-watchdog.sh
-    [ -f /etc/rc.local ] && sed -i '/L2Bridge auto-start/,/^exit 0/d' /etc/rc.local
+    crontab -l 2>/dev/null | grep -v "rvr-watchdog" | crontab - 2>/dev/null || true
+    rm -f /etc/rvr-watchdog.sh
+    [ -f /etc/rc.local ] && sed -i '/RVR auto-start/,/^exit 0/d' /etc/rc.local
     log_info "Watchdog removed"
 }
 
@@ -887,15 +887,15 @@ cmd_setup() {
     local AIRCRAFT_IP="$1"
     local AIRCRAFT_NAME="$2"
 
-    [ -z "$AIRCRAFT_IP" ] && { echo "ERROR: Usage: l2bridge setup <aircraft_ip> <aircraft_name>"; exit 1; }
-    [ -z "$AIRCRAFT_NAME" ] && { echo "ERROR: Aircraft name required. Usage: l2bridge setup <aircraft_ip> <aircraft_name>"; exit 1; }
+    [ -z "$AIRCRAFT_IP" ] && { echo "ERROR: Usage: rvr setup <aircraft_ip> <aircraft_name>"; exit 1; }
+    [ -z "$AIRCRAFT_NAME" ] && { echo "ERROR: Aircraft name required. Usage: rvr setup <aircraft_ip> <aircraft_name>"; exit 1; }
 
     local GCS_IP=$(get_local_tailscale_ip)
 
     init_setup_log
 
     echo "========================================="
-    echo "  Kuruka RVR L2 Bridge Setup v4.0"
+    echo "  Kuruka RVR RVR Setup v4.0"
     echo "========================================="
     echo "  GCS:      $GCS_IP"
     echo "  Aircraft: $AIRCRAFT_IP ($AIRCRAFT_NAME)"
@@ -915,7 +915,7 @@ cmd_setup() {
 
     # Get password from existing profile
     local aircraft_password=""
-    if [ -f "/etc/l2bridge/aircraft.json" ]; then
+    if [ -f "/etc/rvr/aircraft.json" ]; then
         aircraft_password=$(awk -v ip="$AIRCRAFT_IP" '
             BEGIN { in_profile=0; current_ip=""; current_pass="" }
             /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ { in_profile=1; current_ip=""; current_pass="" }
@@ -934,7 +934,7 @@ cmd_setup() {
                 }
                 in_profile = 0
             }
-        ' /etc/l2bridge/aircraft.json 2>/dev/null)
+        ' /etc/rvr/aircraft.json 2>/dev/null)
     fi
 
     setup_ssh_keys "$AIRCRAFT_IP" "$aircraft_password" || exit 1
@@ -963,27 +963,27 @@ cmd_setup() {
     ensure_opkg_feeds
     ensure_packages_local gcs
 
-    echo "[GCS] Configuring l2tap..."
-    mkdir -p /etc/l2bridge /etc/kcptun
+    echo "[GCS] Configuring tap2tcp..."
+    mkdir -p /etc/rvr /etc/kcptun
 
-    # Generate l2tap-up script (runs after TAP creation)
-    cat > /etc/l2bridge/l2tap-up << EOF
+    # Generate tap2tcp-up script (runs after TAP creation)
+    cat > /etc/rvr/tap2tcp-up << EOF
 #!/bin/sh
-ip link set l2bridge mtu $BRIDGE_MTU
-ip link set l2bridge up
+ip link set rvr_bridge mtu $BRIDGE_MTU
+ip link set rvr_bridge up
 iptables -I OUTPUT -o $gcs_bridge -p udp --dport 41641 -j DROP
 iptables -I OUTPUT -o $gcs_bridge -p udp --sport 41641 -j DROP
-iptables -I FORWARD -i l2bridge -p udp --dport 41641 -j DROP
-iptables -I FORWARD -o l2bridge -p udp --dport 41641 -j DROP
-iptables -I FORWARD -i l2bridge -p udp --sport 41641 -j DROP
-iptables -I FORWARD -o l2bridge -p udp --sport 41641 -j DROP
+iptables -I FORWARD -i rvr -p udp --dport 41641 -j DROP
+iptables -I FORWARD -o rvr -p udp --dport 41641 -j DROP
+iptables -I FORWARD -i rvr -p udp --sport 41641 -j DROP
+iptables -I FORWARD -o rvr -p udp --sport 41641 -j DROP
 ip link set $gcs_bridge type bridge stp_state 1
-ip link set l2bridge master $gcs_bridge
+ip link set rvr_bridge master $gcs_bridge
 nft -f - <<'NFTEOF'
-table bridge l2bridge_filter {
+table bridge rvr_filter {
     chain forward {
         type filter hook forward priority 0; policy accept;
-        iifname != "l2bridge" oifname != "l2bridge" accept
+        iifname != "rvr_bridge" oifname != "rvr_bridge" accept
         ether type arp accept
         ether type ip ip daddr 10.0.0.0/8 accept
         ether type ip ip daddr 172.16.0.0/12 accept
@@ -993,33 +993,33 @@ table bridge l2bridge_filter {
         ether type ip ip daddr 255.255.255.255 accept
         ether type ip6 ip6 daddr fe80::/10 accept
         ether type ip6 ip6 daddr ff00::/8 accept
-        iifname "l2bridge" counter drop
-        oifname "l2bridge" counter drop
+        iifname "rvr_bridge" counter drop
+        oifname "rvr_bridge" counter drop
     }
 }
 NFTEOF
 EOF
-    chmod +x /etc/l2bridge/l2tap-up
+    chmod +x /etc/rvr/tap2tcp-up
 
-    # Generate l2tap-down script (runs before shutdown)
-    cat > /etc/l2bridge/l2tap-down << EOF
+    # Generate tap2tcp-down script (runs before shutdown)
+    cat > /etc/rvr/tap2tcp-down << EOF
 #!/bin/sh
-nft delete table bridge l2bridge_filter 2>/dev/null || true
-ip link set l2bridge nomaster 2>/dev/null || true
+nft delete table bridge rvr_filter 2>/dev/null || true
+ip link set rvr_bridge nomaster 2>/dev/null || true
 iptables -D OUTPUT -o $gcs_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
 iptables -D OUTPUT -o $gcs_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
 EOF
-    chmod +x /etc/l2bridge/l2tap-down
+    chmod +x /etc/rvr/tap2tcp-down
 
     # Generate kcptun server config
     cat > /etc/kcptun/server.json << EOF
 {
     "listen": "$GCS_IP:$KCPTUN_PORT",
-    "target": "127.0.0.1:$L2TAP_PORT",
+    "target": "127.0.0.1:$TAP2TCP_PORT",
     "key": "$KCPTUN_KEY",
     "crypt": "none",
     "nocomp": true,
@@ -1070,8 +1070,8 @@ start_service() {
 INITSCRIPT
     chmod +x /etc/init.d/kcptun-server
 
-    # Generate l2tap init script (server mode)
-    cat > /etc/init.d/l2tap << 'INITSCRIPT'
+    # Generate tap2tcp init script (server mode)
+    cat > /etc/init.d/tap2tcp << 'INITSCRIPT'
 #!/bin/sh /etc/rc.common
 START=91
 STOP=9
@@ -1084,7 +1084,7 @@ start_service() {
         sleep 2; elapsed=$((elapsed + 2))
     done
     procd_open_instance
-    procd_set_param command /usr/bin/l2tap -m server -l 127.0.0.1:655 -t l2bridge -u /etc/l2bridge/l2tap-up -d /etc/l2bridge/l2tap-down -s /tmp/l2tap.stats -L 1000 -H 2000
+    procd_set_param command /usr/bin/tap2tcp -m server -l 127.0.0.1:655 -t rvr -u /etc/rvr/tap2tcp-up -d /etc/rvr/tap2tcp-down -s /tmp/tap2tcp.stats -L 1000 -H 2000
     procd_set_param respawn 3600 5 5
     procd_set_param stderr 1
     procd_set_param stdout 1
@@ -1092,14 +1092,14 @@ start_service() {
 }
 
 stop_service() {
-    # Ensure down script runs even if l2tap crashes
-    [ -x /etc/l2bridge/l2tap-down ] && /etc/l2bridge/l2tap-down 2>/dev/null || true
+    # Ensure down script runs even if tap2tcp crashes
+    [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
 }
 INITSCRIPT
-    chmod +x /etc/init.d/l2tap
+    chmod +x /etc/init.d/tap2tcp
 
     /etc/init.d/kcptun-server enable 2>/dev/null
-    /etc/init.d/l2tap enable 2>/dev/null
+    /etc/init.d/tap2tcp enable 2>/dev/null
     uci set network.@device[0].stp='1' 2>/dev/null || true
     uci commit network 2>/dev/null || true
 
@@ -1110,27 +1110,27 @@ INITSCRIPT
     ensure_opkg_feeds_remote "$AIRCRAFT_IP"
     ensure_packages_remote "$AIRCRAFT_IP"
 
-    echo "[Aircraft] Configuring l2tap..."
-    ssh_aircraft "$AIRCRAFT_IP" "mkdir -p /etc/l2bridge /etc/kcptun"
+    echo "[Aircraft] Configuring tap2tcp..."
+    ssh_aircraft "$AIRCRAFT_IP" "mkdir -p /etc/rvr /etc/kcptun"
 
-    # Generate aircraft l2tap-up script
-    ssh_aircraft "$AIRCRAFT_IP" "cat > /etc/l2bridge/l2tap-up << UPEOF
+    # Generate aircraft tap2tcp-up script
+    ssh_aircraft "$AIRCRAFT_IP" "cat > /etc/rvr/tap2tcp-up << UPEOF
 #!/bin/sh
-ip link set l2bridge mtu $BRIDGE_MTU
-ip link set l2bridge up
+ip link set rvr_bridge mtu $BRIDGE_MTU
+ip link set rvr_bridge up
 iptables -I OUTPUT -o $aircraft_bridge -p udp --dport 41641 -j DROP
 iptables -I OUTPUT -o $aircraft_bridge -p udp --sport 41641 -j DROP
-iptables -I FORWARD -i l2bridge -p udp --dport 41641 -j DROP
-iptables -I FORWARD -o l2bridge -p udp --dport 41641 -j DROP
-iptables -I FORWARD -i l2bridge -p udp --sport 41641 -j DROP
-iptables -I FORWARD -o l2bridge -p udp --sport 41641 -j DROP
+iptables -I FORWARD -i rvr -p udp --dport 41641 -j DROP
+iptables -I FORWARD -o rvr -p udp --dport 41641 -j DROP
+iptables -I FORWARD -i rvr -p udp --sport 41641 -j DROP
+iptables -I FORWARD -o rvr -p udp --sport 41641 -j DROP
 ip link set $aircraft_bridge type bridge stp_state 1
-ip link set l2bridge master $aircraft_bridge
+ip link set rvr_bridge master $aircraft_bridge
 nft -f - <<'NFTEOF'
-table bridge l2bridge_filter {
+table bridge rvr_filter {
     chain forward {
         type filter hook forward priority 0; policy accept;
-        iifname != \"l2bridge\" oifname != \"l2bridge\" accept
+        iifname != \"rvr_bridge\" oifname != \"rvr_bridge\" accept
         ether type arp accept
         ether type ip ip daddr 10.0.0.0/8 accept
         ether type ip ip daddr 172.16.0.0/12 accept
@@ -1140,27 +1140,27 @@ table bridge l2bridge_filter {
         ether type ip ip daddr 255.255.255.255 accept
         ether type ip6 ip6 daddr fe80::/10 accept
         ether type ip6 ip6 daddr ff00::/8 accept
-        iifname \"l2bridge\" counter drop
-        oifname \"l2bridge\" counter drop
+        iifname \"rvr_bridge\" counter drop
+        oifname \"rvr_bridge\" counter drop
     }
 }
 NFTEOF
 UPEOF
-chmod +x /etc/l2bridge/l2tap-up"
+chmod +x /etc/rvr/tap2tcp-up"
 
-    # Generate aircraft l2tap-down script
-    ssh_aircraft "$AIRCRAFT_IP" "cat > /etc/l2bridge/l2tap-down << DOWNEOF
+    # Generate aircraft tap2tcp-down script
+    ssh_aircraft "$AIRCRAFT_IP" "cat > /etc/rvr/tap2tcp-down << DOWNEOF
 #!/bin/sh
-nft delete table bridge l2bridge_filter 2>/dev/null || true
-ip link set l2bridge nomaster 2>/dev/null || true
+nft delete table bridge rvr_filter 2>/dev/null || true
+ip link set rvr_bridge nomaster 2>/dev/null || true
 iptables -D OUTPUT -o $aircraft_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
 iptables -D OUTPUT -o $aircraft_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o l2bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o l2bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
 DOWNEOF
-chmod +x /etc/l2bridge/l2tap-down"
+chmod +x /etc/rvr/tap2tcp-down"
 
     # Generate aircraft kcptun client config
     ssh_aircraft "$AIRCRAFT_IP" "cat > /etc/kcptun/client.json << EOF
@@ -1215,8 +1215,8 @@ start_service() {
 INITSCRIPT
 chmod +x /etc/init.d/kcptun-client'
 
-    # Generate aircraft l2tap init script (client mode)
-    ssh_aircraft "$AIRCRAFT_IP" 'cat > /etc/init.d/l2tap << '\''INITSCRIPT'\''
+    # Generate aircraft tap2tcp init script (client mode)
+    ssh_aircraft "$AIRCRAFT_IP" 'cat > /etc/init.d/tap2tcp << '\''INITSCRIPT'\''
 #!/bin/sh /etc/rc.common
 START=91
 STOP=9
@@ -1229,7 +1229,7 @@ start_service() {
         sleep 2; elapsed=$((elapsed + 2))
     done
     procd_open_instance
-    procd_set_param command /usr/bin/l2tap -m client -c 127.0.0.1:4001 -t l2bridge -u /etc/l2bridge/l2tap-up -d /etc/l2bridge/l2tap-down -s /tmp/l2tap.stats -L 1000 -H 2000
+    procd_set_param command /usr/bin/tap2tcp -m client -c 127.0.0.1:4001 -t rvr -u /etc/rvr/tap2tcp-up -d /etc/rvr/tap2tcp-down -s /tmp/tap2tcp.stats -L 1000 -H 2000
     procd_set_param respawn 3600 5 5
     procd_set_param stderr 1
     procd_set_param stdout 1
@@ -1237,17 +1237,17 @@ start_service() {
 }
 
 stop_service() {
-    [ -x /etc/l2bridge/l2tap-down ] && /etc/l2bridge/l2tap-down 2>/dev/null || true
+    [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
 }
 INITSCRIPT
-chmod +x /etc/init.d/l2tap'
+chmod +x /etc/init.d/tap2tcp'
 
-    ssh_aircraft "$AIRCRAFT_IP" '/etc/init.d/kcptun-client enable 2>/dev/null; /etc/init.d/l2tap enable 2>/dev/null'
+    ssh_aircraft "$AIRCRAFT_IP" '/etc/init.d/kcptun-client enable 2>/dev/null; /etc/init.d/tap2tcp enable 2>/dev/null'
     ssh_aircraft "$AIRCRAFT_IP" 'uci set network.@device[0].stp="1" 2>/dev/null || true; uci commit network 2>/dev/null || true'
 
     # Verify aircraft configuration
     echo "[Aircraft] Verifying configuration..."
-    log_cmd "Aircraft l2tap-up" ssh_aircraft "$AIRCRAFT_IP" "cat /etc/l2bridge/l2tap-up"
+    log_cmd "Aircraft tap2tcp-up" ssh_aircraft "$AIRCRAFT_IP" "cat /etc/rvr/tap2tcp-up"
     log_cmd "Aircraft kcptun config" ssh_aircraft "$AIRCRAFT_IP" "cat /etc/kcptun/client.json"
 
     echo "[Aircraft] Setup complete."
@@ -1256,9 +1256,9 @@ chmod +x /etc/init.d/l2tap'
     local GCS_HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "GCS")
     echo "[*] Syncing binding profile to aircraft..."
     ssh_aircraft "$AIRCRAFT_IP" "
-        mkdir -p /etc/l2bridge
-        printf '{\"version\":1,\"active\":\"gcs\",\"profiles\":{\"gcs\":{\"name\":\"$GCS_HOSTNAME\",\"tailscale_ip\":\"$GCS_IP\",\"ssh_password\":\"\",\"created\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\",\"last_used\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\"}}}' > /etc/l2bridge/aircraft.json
-        echo 'AIRCRAFT_IP=\"$GCS_IP\"' > /etc/l2bridge.conf
+        mkdir -p /etc/rvr
+        printf '{\"version\":1,\"active\":\"gcs\",\"profiles\":{\"gcs\":{\"name\":\"$GCS_HOSTNAME\",\"tailscale_ip\":\"$GCS_IP\",\"ssh_password\":\"\",\"created\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\",\"last_used\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\"}}}' > /etc/rvr/aircraft.json
+        echo 'AIRCRAFT_IP=\"$GCS_IP\"' > /etc/rvr.conf
     " 2>/dev/null || echo "    Warning: Could not sync profile to aircraft"
 
     save_aircraft_ip "$AIRCRAFT_IP"
@@ -1277,16 +1277,16 @@ chmod +x /etc/init.d/l2tap'
     echo "[*] Post-start verification..."
     echo ""
     echo "=== GCS Verification ==="
-    log_cmd "GCS l2bridge interface" ip link show l2bridge
+    log_cmd "GCS rvr interface" ip link show rvr_bridge
     log_cmd "GCS bridge membership" bridge link show
     log_cmd "GCS firewall OUTPUT" iptables -L OUTPUT -n -v | grep -E "41641|DROP" | head -5
-    log_cmd "GCS l2tap process" pgrep -la l2tap
+    log_cmd "GCS tap2tcp process" pgrep -la tap2tcp
 
     echo ""
     echo "=== Aircraft Verification ==="
-    log_cmd "Aircraft l2bridge interface" ssh_aircraft "$AIRCRAFT_IP" "ip link show l2bridge 2>/dev/null || echo 'l2bridge NOT FOUND'"
+    log_cmd "Aircraft rvr interface" ssh_aircraft "$AIRCRAFT_IP" "ip link show rvr_bridge 2>/dev/null || echo 'rvr_bridge NOT FOUND'"
     log_cmd "Aircraft bridge membership" ssh_aircraft "$AIRCRAFT_IP" "bridge link show 2>/dev/null"
-    log_cmd "Aircraft processes" ssh_aircraft "$AIRCRAFT_IP" "pgrep -la kcptun; pgrep -la l2tap"
+    log_cmd "Aircraft processes" ssh_aircraft "$AIRCRAFT_IP" "pgrep -la kcptun; pgrep -la tap2tcp"
     log_cmd "Aircraft firewall" ssh_aircraft "$AIRCRAFT_IP" "iptables -L OUTPUT -n | grep -E '41641|DROP' | head -3"
 
     echo ""
@@ -1306,16 +1306,16 @@ chmod +x /etc/init.d/l2tap'
         echo "Could not determine aircraft LAN IP - L2 bridge verified via Tailscale only"
     fi
 
-    # Show l2tap stats
+    # Show tap2tcp stats
     echo ""
-    echo "=== L2TAP Streams ==="
+    echo "=== Tap2TCP Streams ==="
     if [ -f "$STATS_FILE" ]; then
         . "$STATS_FILE"
         echo "  Active streams: ${STREAMS:-0}/${MAX_STREAMS:-32}"
         echo "  Active flows:   ${FLOWS:-0}"
         echo "  Broadcast:      ${BCAST_STREAM:-down}"
     else
-        echo "  Stats not yet available (l2tap may still be initializing)"
+        echo "  Stats not yet available (tap2tcp may still be initializing)"
     fi
 
     echo ""
@@ -1362,23 +1362,23 @@ cmd_status() {
     local GCS_IP=$(get_tailscale_ip_nowait)
 
     echo "========================================="
-    echo "  L2 Bridge Status (v4.0)"
+    echo "  RVR Status (v4.0)"
     echo "========================================="
     echo ""
     echo "[Tailscale] ${GCS_IP:-NOT READY}"
     echo ""
     echo "[Processes]"
     pgrep -f kcptun-server >/dev/null && echo "  kcptun-server: RUNNING" || echo "  kcptun-server: STOPPED"
-    pgrep l2tap >/dev/null && echo "  l2tap:         RUNNING" || echo "  l2tap:         STOPPED"
+    pgrep tap2tcp >/dev/null && echo "  tap2tcp:      RUNNING" || echo "  tap2tcp:      STOPPED"
     echo ""
     echo "[Interface]"
-    if ip link show l2bridge >/dev/null 2>&1; then
-        echo "  l2bridge: UP (MTU: $(ip link show l2bridge | grep -o 'mtu [0-9]*' | cut -d' ' -f2))"
+    if ip link show rvr_bridge >/dev/null 2>&1; then
+        echo "  rvr_bridge: UP (MTU: $(ip link show rvr_bridge | grep -o 'mtu [0-9]*' | cut -d' ' -f2))"
     else
-        echo "  l2bridge: NOT FOUND"
+        echo "  rvr_bridge: NOT FOUND"
     fi
     echo ""
-    echo "[L2TAP Streams]"
+    echo "[Tap2TCP Streams]"
     if [ -f "$STATS_FILE" ]; then
         . "$STATS_FILE"
         echo "  Active: ${STREAMS:-0}/${MAX_STREAMS:-32} streams, ${FLOWS:-0} flows"
@@ -1390,7 +1390,7 @@ cmd_status() {
     fi
     echo ""
     echo "[Watchdog]"
-    crontab -l 2>/dev/null | grep -q "l2bridge-watchdog" && echo "  Status: ACTIVE" || echo "  Status: INACTIVE"
+    crontab -l 2>/dev/null | grep -q "rvr-watchdog" && echo "  Status: ACTIVE" || echo "  Status: INACTIVE"
     [ -f "$HEALTH_FILE" ] && { . "$HEALTH_FILE"; echo "  Last: $STATUS ($LAST_CHECK)"; }
     echo ""
     [ -f "$STATE_FILE" ] && { . "$STATE_FILE"; [ -n "$AIRCRAFT_IP" ] && echo "[Aircraft] $AIRCRAFT_IP"; }
@@ -1402,29 +1402,29 @@ cmd_remote() {
     ssh_aircraft "$AIRCRAFT_IP" '
         echo "=== Aircraft Status ==="
         pgrep -f kcptun-client >/dev/null && echo "kcptun-client: RUNNING" || echo "kcptun-client: STOPPED"
-        pgrep l2tap >/dev/null && echo "l2tap: RUNNING" || echo "l2tap: STOPPED"
-        ip link show l2bridge 2>/dev/null && echo "l2bridge: UP" || echo "l2bridge: DOWN"
-        if [ -f /tmp/l2tap.stats ]; then
-            . /tmp/l2tap.stats
+        pgrep tap2tcp >/dev/null && echo "tap2tcp: RUNNING" || echo "tap2tcp: STOPPED"
+        ip link show rvr_bridge 2>/dev/null && echo "rvr_bridge: UP" || echo "rvr_bridge: DOWN"
+        if [ -f /tmp/tap2tcp.stats ]; then
+            . /tmp/tap2tcp.stats
             echo "Streams: ${STREAMS:-0}/${MAX_STREAMS:-32}, Flows: ${FLOWS:-0}"
         fi
     '
 }
 
-cmd_logs() { logread 2>/dev/null | grep -iE "l2tap|kcptun|l2bridge" | tail -"${1:-20}"; }
+cmd_logs() { logread 2>/dev/null | grep -iE "tap2tcp|kcptun|rvr" | tail -"${1:-20}"; }
 
 cmd_debug() {
     local AIRCRAFT_IP=$(require_aircraft_ip "$1")
     cmd_status
     echo "=== Logs ===" && cmd_logs 10
-    echo "=== Watchdog Log ===" && tail -10 /tmp/l2bridge-watchdog.log 2>/dev/null || echo "None"
+    echo "=== Watchdog Log ===" && tail -10 /tmp/rvr-watchdog.log 2>/dev/null || echo "None"
     check_aircraft_reachable "$AIRCRAFT_IP" && { echo "=== Aircraft ===" && cmd_remote "$AIRCRAFT_IP"; }
 }
 
 cmd_config() {
     echo "GCS IP:      $(get_tailscale_ip_nowait)"
     echo "KCP Port:    $KCPTUN_PORT"
-    echo "L2TAP Port:  $L2TAP_PORT"
+    echo "Tap2TCP Port:  $TAP2TCP_PORT"
     echo "Bridge MTU:  $BRIDGE_MTU"
     echo "KCP MTU:     $KCP_SEGMENT_MTU"
     [ -f "$STATE_FILE" ] && { . "$STATE_FILE"; echo "Aircraft:    $AIRCRAFT_IP"; }
@@ -1432,7 +1432,7 @@ cmd_config() {
 
 cmd_remove_aircraft() {
     local input="$1"
-    [ -z "$input" ] && { echo "Usage: l2bridge remove-aircraft <name|ip>"; exit 1; }
+    [ -z "$input" ] && { echo "Usage: rvr remove-aircraft <name|ip>"; exit 1; }
     local AIRCRAFT_IP=$(get_aircraft_ip "$input")
     [ -z "$AIRCRAFT_IP" ] && { echo "ERROR: Could not resolve '$input' to an aircraft IP"; exit 1; }
 
@@ -1454,26 +1454,26 @@ cmd_remove_aircraft() {
         echo "[*] Uninstalling from aircraft ($AIRCRAFT_IP)..."
         ssh_aircraft "$AIRCRAFT_IP" '
             /etc/init.d/kcptun-client stop 2>/dev/null || true
-            /etc/init.d/l2tap stop 2>/dev/null || true
-            [ -x /etc/l2bridge/l2tap-down ] && /etc/l2bridge/l2tap-down 2>/dev/null || true
+            /etc/init.d/tap2tcp stop 2>/dev/null || true
+            [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
             /etc/init.d/kcptun-client disable 2>/dev/null || true
-            /etc/init.d/l2tap disable 2>/dev/null || true
-            rm -f /etc/init.d/kcptun-client /etc/init.d/l2tap
-            rm -rf /etc/l2bridge
+            /etc/init.d/tap2tcp disable 2>/dev/null || true
+            rm -f /etc/init.d/kcptun-client /etc/init.d/tap2tcp
+            rm -rf /etc/rvr
             rm -f /etc/kcptun/client.json
             rmdir /etc/kcptun 2>/dev/null || true
-            rm -f /usr/bin/l2tap
+            rm -f /usr/bin/tap2tcp
             uci delete network.@device[0].stp 2>/dev/null || true
             uci commit network 2>/dev/null || true
             opkg remove --force-depends kcptun-client kcptun-config kmod-tun 2>/dev/null || true
-            rm -f /tmp/l2bridge* /tmp/l2tap*
+            rm -f /tmp/rvr* /tmp/tap2tcp*
         ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
     else
         echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"
     fi
 
     # Remove profile from aircraft.json
-    local aircraft_file="/etc/l2bridge/aircraft.json"
+    local aircraft_file="/etc/rvr/aircraft.json"
     if [ -f "$aircraft_file" ]; then
         local profile_id=$(awk -v ip="$AIRCRAFT_IP" '
             /"[a-zA-Z0-9_-]+"[[:space:]]*:[[:space:]]*\{/ {
@@ -1498,7 +1498,7 @@ cmd_remove_aircraft() {
 
     echo ""
     echo "Aircraft $AIRCRAFT_IP removed. GCS is still operational."
-    echo "Use 'l2bridge add <ip>' to connect a different aircraft."
+    echo "Use 'rvr add <ip>' to connect a different aircraft."
 }
 
 cmd_uninstall() {
@@ -1506,17 +1506,17 @@ cmd_uninstall() {
     local script_dir=$(dirname "$(readlink -f "$0")")
 
     echo ""
-    echo "This will completely remove RVR L2 Bridge and all configuration."
+    echo "This will completely remove RVR RVR and all configuration."
     echo ""
     echo "The following will be removed:"
-    echo "  - L2Bridge services, configs, and init scripts"
+    echo "  - RVR services, configs, and init scripts"
     echo "  - Watchdog and auto-start entries"
     [ -d "$WEBUI_ROOT" ] && echo "  - Web UI ($WEBUI_ROOT, uhttpd config, firewall rule)"
     echo "  - Installed packages (kcptun, sshpass, git, etc.)"
-    echo "  - l2tap binary"
+    echo "  - tap2tcp binary"
     [ -n "$AIRCRAFT_IP" ] && echo "  - Aircraft configuration on $AIRCRAFT_IP (if reachable)"
     echo "  - Repository ($script_dir)"
-    echo "  - /usr/bin/l2bridge symlink"
+    echo "  - /usr/bin/rvr symlink"
     echo ""
     printf "Continue? [y/N] "
     read confirm
@@ -1531,15 +1531,15 @@ cmd_uninstall() {
     cmd_watchdog_remove 2>/dev/null || true
 
     # Remove Web UI if installed
-    if [ -d "$WEBUI_ROOT" ] || uci get uhttpd.l2bridge >/dev/null 2>&1; then
+    if [ -d "$WEBUI_ROOT" ] || uci get uhttpd.rvr >/dev/null 2>&1; then
         echo "[*] Removing Web UI..."
         /etc/init.d/uhttpd stop 2>/dev/null || true
-        if uci get uhttpd.l2bridge >/dev/null 2>&1; then
-            uci delete uhttpd.l2bridge
+        if uci get uhttpd.rvr >/dev/null 2>&1; then
+            uci delete uhttpd.rvr
             uci commit uhttpd
         fi
-        if uci get firewall.l2bridge_webui >/dev/null 2>&1; then
-            uci delete firewall.l2bridge_webui
+        if uci get firewall.rvr_webui >/dev/null 2>&1; then
+            uci delete firewall.rvr_webui
             uci commit firewall
             /etc/init.d/firewall reload 2>/dev/null || true
         fi
@@ -1547,20 +1547,20 @@ cmd_uninstall() {
         /etc/init.d/uhttpd start 2>/dev/null || true
     fi
 
-    # Run l2tap-down to clean iptables rules
+    # Run tap2tcp-down to clean iptables rules
     echo "[*] Cleaning up iptables rules..."
-    [ -x /etc/l2bridge/l2tap-down ] && /etc/l2bridge/l2tap-down 2>/dev/null || true
+    [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
 
     echo "[*] Removing GCS service configuration..."
     /etc/init.d/kcptun-server disable 2>/dev/null || true
-    /etc/init.d/l2tap disable 2>/dev/null || true
-    rm -f /etc/init.d/kcptun-server /etc/init.d/l2tap
+    /etc/init.d/tap2tcp disable 2>/dev/null || true
+    rm -f /etc/init.d/kcptun-server /etc/init.d/tap2tcp
 
-    rm -rf /etc/l2bridge
+    rm -rf /etc/rvr
     rm -f /etc/kcptun/server.json
     rmdir /etc/kcptun 2>/dev/null || true
     rm -f "$STATE_FILE" "$HEALTH_FILE"
-    rm -f "$L2TAP_BINARY"
+    rm -f "$TAP2TCP_BINARY"
 
     echo "[*] Reverting STP on bridge..."
     uci delete network.@device[0].stp 2>/dev/null || true
@@ -1571,15 +1571,15 @@ cmd_uninstall() {
         echo "[*] Cleaning up aircraft ($AIRCRAFT_IP)..."
         ssh_aircraft "$AIRCRAFT_IP" '
             /etc/init.d/kcptun-client stop 2>/dev/null || true
-            /etc/init.d/l2tap stop 2>/dev/null || true
-            [ -x /etc/l2bridge/l2tap-down ] && /etc/l2bridge/l2tap-down 2>/dev/null || true
+            /etc/init.d/tap2tcp stop 2>/dev/null || true
+            [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
             /etc/init.d/kcptun-client disable 2>/dev/null || true
-            /etc/init.d/l2tap disable 2>/dev/null || true
-            rm -f /etc/init.d/kcptun-client /etc/init.d/l2tap
-            rm -rf /etc/l2bridge
+            /etc/init.d/tap2tcp disable 2>/dev/null || true
+            rm -f /etc/init.d/kcptun-client /etc/init.d/tap2tcp
+            rm -rf /etc/rvr
             rm -f /etc/kcptun/client.json
             rmdir /etc/kcptun 2>/dev/null || true
-            rm -f /usr/bin/l2tap
+            rm -f /usr/bin/tap2tcp
             uci delete network.@device[0].stp 2>/dev/null || true
             uci commit network 2>/dev/null || true
             opkg remove --force-depends kcptun-client kcptun-config kmod-tun 2>/dev/null || true
@@ -1587,7 +1587,7 @@ cmd_uninstall() {
             sed -i "/arch aarch64_cortex-a53 /d" /etc/opkg.conf 2>/dev/null || true
             sed -i "/arch all /d" /etc/opkg.conf 2>/dev/null || true
             sed -i "/openwrt_packages/d" /etc/opkg/customfeeds.conf 2>/dev/null || true
-            rm -f /tmp/l2bridge* /tmp/l2tap*
+            rm -f /tmp/rvr* /tmp/tap2tcp*
         ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
     elif [ -n "$AIRCRAFT_IP" ]; then
         echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"
@@ -1603,10 +1603,10 @@ cmd_uninstall() {
     sed -i "/arch all /d" /etc/opkg.conf 2>/dev/null || true
     sed -i "/openwrt_packages/d" /etc/opkg/customfeeds.conf 2>/dev/null || true
 
-    echo "[*] Removing l2bridge..."
-    rm -f /usr/bin/l2bridge
+    echo "[*] Removing RVR..."
+    rm -f /usr/bin/rvr
 
-    rm -f /tmp/l2bridge* /tmp/l2tap* /tmp/rvr-*
+    rm -f /tmp/rvr* /tmp/tap2tcp* /tmp/rvr-*
 
     if [ -d "$script_dir" ]; then
         echo "[*] Removing repository ($script_dir)..."
@@ -1615,7 +1615,7 @@ cmd_uninstall() {
 
     echo ""
     echo "=========================================="
-    echo "  RVR L2 Bridge fully uninstalled."
+    echo "  RVR RVR fully uninstalled."
     echo "=========================================="
 }
 
@@ -1623,15 +1623,15 @@ cmd_uninstall() {
 # WEB UI INSTALL/REMOVE
 #############################################
 WEBUI_ROOT="/www/rvr"
-WEBUI_CONFIG_DIR="/etc/l2bridge"
+WEBUI_CONFIG_DIR="/etc/rvr"
 WEBUI_PORT="8081"
 
 cmd_webui_install() {
-    log_info "Installing L2Bridge Web UI..."
+    log_info "Installing RVR Web UI..."
 
     mkdir -p "$WEBUI_ROOT/cgi-bin"
     mkdir -p "$WEBUI_CONFIG_DIR"
-    mkdir -p /tmp/l2bridge
+    mkdir -p /tmp/rvr
 
     local script_dir=$(dirname "$(readlink -f "$0")")
     local src_www="$script_dir/www"
@@ -1666,39 +1666,39 @@ cmd_webui_install() {
 
     log_info "Configuring uhttpd on port $WEBUI_PORT..."
 
-    if uci get uhttpd.l2bridge >/dev/null 2>&1; then
+    if uci get uhttpd.rvr >/dev/null 2>&1; then
         log_info "Updating existing uhttpd configuration..."
     else
         log_info "Creating new uhttpd configuration..."
-        uci set uhttpd.l2bridge=uhttpd
+        uci set uhttpd.rvr=uhttpd
     fi
 
-    uci set uhttpd.l2bridge.listen_http="0.0.0.0:$WEBUI_PORT"
-    uci set uhttpd.l2bridge.home="$WEBUI_ROOT"
-    uci set uhttpd.l2bridge.cgi_prefix='/cgi-bin'
-    uci set uhttpd.l2bridge.script_timeout='300'
-    uci set uhttpd.l2bridge.no_symlinks='0'
-    uci set uhttpd.l2bridge.no_dirlists='1'
-    uci set uhttpd.l2bridge.rfc1918_filter='0'
+    uci set uhttpd.rvr.listen_http="0.0.0.0:$WEBUI_PORT"
+    uci set uhttpd.rvr.home="$WEBUI_ROOT"
+    uci set uhttpd.rvr.cgi_prefix='/cgi-bin'
+    uci set uhttpd.rvr.script_timeout='300'
+    uci set uhttpd.rvr.no_symlinks='0'
+    uci set uhttpd.rvr.no_dirlists='1'
+    uci set uhttpd.rvr.rfc1918_filter='0'
     uci commit uhttpd
 
     /etc/init.d/uhttpd restart
 
     if command -v fw4 >/dev/null 2>&1 || [ -f /etc/config/firewall ]; then
         log_info "Configuring firewall for port $WEBUI_PORT..."
-        if ! uci get firewall.l2bridge_webui >/dev/null 2>&1; then
-            uci set firewall.l2bridge_webui=rule
-            uci set firewall.l2bridge_webui.name='Allow-L2Bridge-WebUI'
-            uci set firewall.l2bridge_webui.src='lan'
-            uci set firewall.l2bridge_webui.proto='tcp'
-            uci set firewall.l2bridge_webui.dest_port="$WEBUI_PORT"
-            uci set firewall.l2bridge_webui.target='ACCEPT'
+        if ! uci get firewall.rvr_webui >/dev/null 2>&1; then
+            uci set firewall.rvr_webui=rule
+            uci set firewall.rvr_webui.name='Allow-RVR-WebUI'
+            uci set firewall.rvr_webui.src='lan'
+            uci set firewall.rvr_webui.proto='tcp'
+            uci set firewall.rvr_webui.dest_port="$WEBUI_PORT"
+            uci set firewall.rvr_webui.target='ACCEPT'
             uci commit firewall
             /etc/init.d/firewall reload 2>/dev/null || true
         fi
     fi
 
-    if ! crontab -l 2>/dev/null | grep -q "l2bridge-watchdog"; then
+    if ! crontab -l 2>/dev/null | grep -q "rvr-watchdog"; then
         cmd_watchdog_install
     fi
 
@@ -1706,7 +1706,7 @@ cmd_webui_install() {
 
     echo ""
     echo "========================================="
-    echo "  L2Bridge Web UI Installed"
+    echo "  RVR Web UI Installed"
     echo "========================================="
     echo ""
     echo "  Access the control panel at:"
@@ -1718,17 +1718,17 @@ cmd_webui_install() {
 }
 
 cmd_webui_remove() {
-    log_info "Removing L2Bridge Web UI..."
+    log_info "Removing RVR Web UI..."
 
     /etc/init.d/uhttpd stop 2>/dev/null || true
 
-    if uci get uhttpd.l2bridge >/dev/null 2>&1; then
-        uci delete uhttpd.l2bridge
+    if uci get uhttpd.rvr >/dev/null 2>&1; then
+        uci delete uhttpd.rvr
         uci commit uhttpd
     fi
 
-    if uci get firewall.l2bridge_webui >/dev/null 2>&1; then
-        uci delete firewall.l2bridge_webui
+    if uci get firewall.rvr_webui >/dev/null 2>&1; then
+        uci delete firewall.rvr_webui
         uci commit firewall
         /etc/init.d/firewall reload 2>/dev/null || true
     fi
@@ -1773,11 +1773,11 @@ cmd_update() {
     if [ "${free_kb:-999999}" -lt 30720 ]; then
         log_error "Not enough space for update (${free_kb}KB free, need 30MB)"
         echo "  Free /overlay space: ${free_kb}KB — minimum 30MB required"
-        echo "  Run 'l2bridge capture stop' and delete old captures to free space"
+        echo "  Run 'rvr capture stop' and delete old captures to free space"
         exit 1
     fi
 
-    echo "Updating L2Bridge from GitHub..."
+    echo "Updating RVR from GitHub..."
     echo "  Repository: $repo_dir"
     echo "  Branch: $branch"
 
@@ -1795,22 +1795,22 @@ cmd_update() {
     fi
 
     git reset --hard "origin/$branch" 2>&1 || { log_error "Failed to apply updates"; exit 1; }
-    chmod +x "$repo_dir/l2bridge"
+    chmod +x "$repo_dir/rvr"
     chmod +x "$repo_dir/www/cgi-bin/"*.cgi 2>/dev/null
 
     # Clean stale git objects to reclaim storage
     git reflog expire --expire=now --all 2>/dev/null
     git gc --prune=all -q 2>/dev/null
 
-    # Update l2tap binary if new one available
-    if [ -f "$repo_dir/packages/common/l2tap-aarch64" ]; then
-        cp "$repo_dir/packages/common/l2tap-aarch64" "$L2TAP_BINARY"
-        chmod +x "$L2TAP_BINARY"
-        log_info "Updated l2tap binary"
+    # Update tap2tcp binary if new one available
+    if [ -f "$repo_dir/packages/common/tap2tcp-aarch64" ]; then
+        cp "$repo_dir/packages/common/tap2tcp-aarch64" "$TAP2TCP_BINARY"
+        chmod +x "$TAP2TCP_BINARY"
+        log_info "Updated tap2tcp binary"
     fi
 
-    if [ ! -L /usr/bin/l2bridge ] || [ "$(readlink -f /usr/bin/l2bridge)" != "$repo_dir/l2bridge" ]; then
-        ln -sf "$repo_dir/l2bridge" /usr/bin/l2bridge
+    if [ ! -L /usr/bin/rvr ] || [ "$(readlink -f /usr/bin/rvr)" != "$repo_dir/rvr" ]; then
+        ln -sf "$repo_dir/rvr" /usr/bin/rvr
     fi
 
     echo "  Updated: $old_hash -> $new_hash ($branch)"
@@ -1831,7 +1831,7 @@ cmd_update() {
             mkdir -p "$WEBUI_CONFIG_DIR"
             echo "$new_hash" > "$WEBUI_CONFIG_DIR/version"
             echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
-            rm -f /tmp/l2bridge-latest-version
+            rm -f /tmp/rvr-latest-version
             log_info "Web UI updated"
         fi
     else
@@ -1842,7 +1842,7 @@ cmd_update() {
     fi
 
     local AIRCRAFT_IP=$(get_aircraft_ip 2>/dev/null)
-    if [ -n "$AIRCRAFT_IP" ] && pgrep l2tap >/dev/null 2>&1; then
+    if [ -n "$AIRCRAFT_IP" ] && pgrep tap2tcp >/dev/null 2>&1; then
         log_info "Restarting bridge to apply updates..."
         cmd_restart "$AIRCRAFT_IP"
     fi
@@ -1887,13 +1887,13 @@ cmd_add() {
     local AIRCRAFT_IP="$1"
     local AIRCRAFT_NAME="$2"
 
-    [ -z "$AIRCRAFT_IP" ] && { echo "ERROR: Usage: l2bridge add <aircraft_ip> [aircraft_name]"; exit 1; }
+    [ -z "$AIRCRAFT_IP" ] && { echo "ERROR: Usage: rvr add <aircraft_ip> [aircraft_name]"; exit 1; }
 
     local GCS_IP=$(get_local_tailscale_ip)
 
     local aircraft_password=""
     local existing_name=""
-    if [ -f "/etc/l2bridge/aircraft.json" ]; then
+    if [ -f "/etc/rvr/aircraft.json" ]; then
         aircraft_password=$(awk -v ip="$AIRCRAFT_IP" '
             BEGIN { in_profile=0; current_ip=""; current_pass="" }
             /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ { in_profile=1; current_ip=""; current_pass="" }
@@ -1912,7 +1912,7 @@ cmd_add() {
                 }
                 in_profile = 0
             }
-        ' /etc/l2bridge/aircraft.json 2>/dev/null)
+        ' /etc/rvr/aircraft.json 2>/dev/null)
 
         existing_name=$(awk -v ip="$AIRCRAFT_IP" '
             BEGIN { in_profile=0; current_ip=""; current_name="" }
@@ -1932,20 +1932,20 @@ cmd_add() {
                 }
                 in_profile = 0
             }
-        ' /etc/l2bridge/aircraft.json 2>/dev/null)
+        ' /etc/rvr/aircraft.json 2>/dev/null)
     fi
 
     if [ -z "$AIRCRAFT_NAME" ]; then
         if [ -n "$existing_name" ]; then
             AIRCRAFT_NAME="$existing_name"
         else
-            echo "ERROR: Aircraft name required for new aircraft. Usage: l2bridge add <aircraft_ip> <aircraft_name>"
+            echo "ERROR: Aircraft name required for new aircraft. Usage: rvr add <aircraft_ip> <aircraft_name>"
             exit 1
         fi
     fi
 
     echo "========================================="
-    echo "  L2 Bridge - Connect to Aircraft"
+    echo "  RVR - Connect to Aircraft"
     echo "========================================="
     echo "  GCS:      $GCS_IP"
     echo "  Aircraft: $AIRCRAFT_IP ($AIRCRAFT_NAME)"
@@ -1958,14 +1958,14 @@ cmd_add() {
 
     setup_ssh_keys "$AIRCRAFT_IP" "$aircraft_password" || exit 1
 
-    # Verify l2bridge is installed on both sides
-    echo "[*] Verifying l2bridge installation..."
-    [ -x "$L2TAP_BINARY" ] || { echo "ERROR: l2tap not installed on GCS. Run 'l2bridge setup $AIRCRAFT_IP' first."; exit 1; }
-    ssh_aircraft "$AIRCRAFT_IP" "[ -x /usr/bin/l2tap ]" 2>/dev/null || {
-        echo "ERROR: l2tap not installed on aircraft. Run 'l2bridge setup $AIRCRAFT_IP' first."
+    # Verify rvr is installed on both sides
+    echo "[*] Verifying rvr installation..."
+    [ -x "$TAP2TCP_BINARY" ] || { echo "ERROR: tap2tcp not installed on GCS. Run 'rvr setup $AIRCRAFT_IP' first."; exit 1; }
+    ssh_aircraft "$AIRCRAFT_IP" "[ -x /usr/bin/tap2tcp ]" 2>/dev/null || {
+        echo "ERROR: tap2tcp not installed on aircraft. Run 'rvr setup $AIRCRAFT_IP' first."
         exit 1
     }
-    echo "    Both sides have l2tap installed."
+    echo "    Both sides have tap2tcp installed."
 
     echo "[*] Stopping existing services..."
     cmd_stop_internal "$(get_aircraft_ip)" 2>/dev/null || true
@@ -1986,9 +1986,9 @@ cmd_add() {
     # Sync binding profile to aircraft
     local GCS_HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "GCS")
     ssh_aircraft "$AIRCRAFT_IP" "
-        mkdir -p /etc/l2bridge
-        printf '{\"version\":1,\"active\":\"gcs\",\"profiles\":{\"gcs\":{\"name\":\"$GCS_HOSTNAME\",\"tailscale_ip\":\"$GCS_IP\",\"ssh_password\":\"\",\"created\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\",\"last_used\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\"}}}' > /etc/l2bridge/aircraft.json
-        echo 'AIRCRAFT_IP=\"$GCS_IP\"' > /etc/l2bridge.conf
+        mkdir -p /etc/rvr
+        printf '{\"version\":1,\"active\":\"gcs\",\"profiles\":{\"gcs\":{\"name\":\"$GCS_HOSTNAME\",\"tailscale_ip\":\"$GCS_IP\",\"ssh_password\":\"\",\"created\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\",\"last_used\":\"$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')\"}}}' > /etc/rvr/aircraft.json
+        echo 'AIRCRAFT_IP=\"$GCS_IP\"' > /etc/rvr.conf
     " 2>/dev/null || true
 
     echo "[*] Starting services..."
@@ -2005,8 +2005,8 @@ cmd_add() {
 #############################################
 # CAPTURE COMMAND
 #############################################
-CAPTURE_PID_FILE="/tmp/l2bridge-capture.pid"
-CAPTURE_DEFAULT_FILE="/tmp/l2bridge-capture.pcap"
+CAPTURE_PID_FILE="/tmp/rvr-capture.pid"
+CAPTURE_DEFAULT_FILE="/tmp/rvr-capture.pcap"
 CAPTURE_DEFAULT_DURATION=60
 
 cmd_capture() {
@@ -2025,7 +2025,7 @@ cmd_capture() {
                 else
                     echo "Capture process not running"
                 fi
-                rm -f "$CAPTURE_PID_FILE" "/tmp/l2bridge-capture.start"
+                rm -f "$CAPTURE_PID_FILE" "/tmp/rvr-capture.start"
             else
                 echo "No active capture"
             fi
@@ -2071,23 +2071,23 @@ cmd_capture() {
                 return 1
             fi
 
-            if ! ip link show l2bridge >/dev/null 2>&1; then
-                echo "Error: l2bridge interface not found. Is the bridge running?"
+            if ! ip link show rvr_bridge >/dev/null 2>&1; then
+                echo "Error: rvr interface not found. Is the bridge running?"
                 return 1
             fi
 
-            echo "Starting capture on l2bridge for ${duration}s -> $outfile"
-            (tcpdump -i l2bridge -s 0 -w "$outfile" >/dev/null 2>&1 & echo $! > "$CAPTURE_PID_FILE"; wait $!; rm -f "$CAPTURE_PID_FILE" "/tmp/l2bridge-capture.start") >/dev/null 2>&1 &
+            echo "Starting capture on rvr for ${duration}s -> $outfile"
+            (tcpdump -i rvr -s 0 -w "$outfile" >/dev/null 2>&1 & echo $! > "$CAPTURE_PID_FILE"; wait $!; rm -f "$CAPTURE_PID_FILE" "/tmp/rvr-capture.start") >/dev/null 2>&1 &
             sleep 1
             local pid=$(cat "$CAPTURE_PID_FILE" 2>/dev/null)
-            date +%s > /tmp/l2bridge-capture.start
+            date +%s > /tmp/rvr-capture.start
             (sleep "$duration"; [ -f "$CAPTURE_PID_FILE" ] && kill "$(cat "$CAPTURE_PID_FILE")" 2>/dev/null) >/dev/null 2>&1 &
             echo "Capture started (PID ${pid:-?}, duration ${duration}s)"
-            echo "Stop early with: l2bridge capture stop"
+            echo "Stop early with: rvr capture stop"
             echo "Download file: $outfile"
             ;;
         *)
-            echo "Usage: l2bridge capture [start|stop|status] [duration] [file]"
+            echo "Usage: rvr capture [start|stop|status] [duration] [file]"
             ;;
     esac
 }

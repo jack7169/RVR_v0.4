@@ -7,7 +7,7 @@ CROSS_CC ?= aarch64-linux-gnu-gcc
 SRCS = $(wildcard src/*.c)
 OBJS = $(SRCS:src/%.c=src/%.o)
 
-TARGET = l2tap
+TARGET = tap2tcp
 
 .PHONY: all cross clean
 
@@ -16,11 +16,11 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
-src/%.o: src/%.c include/l2tap.h
+src/%.o: src/%.c include/tap2tcp.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 cross:
-	$(MAKE) CC=$(CROSS_CC) TARGET=l2tap-aarch64
+	$(MAKE) CC=$(CROSS_CC) TARGET=tap2tcp-aarch64
 
 clean:
-	rm -f src/*.o $(TARGET) l2tap-aarch64
+	rm -f src/*.o $(TARGET) tap2tcp-aarch64

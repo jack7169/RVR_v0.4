@@ -1,4 +1,4 @@
-#include "../include/l2tap.h"
+#include "../include/tap2tcp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +7,7 @@
 #include <getopt.h>
 #include <sys/epoll.h>
 
-static struct l2tap_ctx g_ctx;
+static struct tap2tcp_ctx g_ctx;
 
 static void usage(const char *prog)
 {
@@ -18,17 +18,17 @@ static void usage(const char *prog)
         "  -m <mode>     Operating mode: 'server' or 'client' (required)\n"
         "  -l <addr>     Listen address (server mode, default: 127.0.0.1:655)\n"
         "  -c <addr>     Connect address (client mode, default: 127.0.0.1:4001)\n"
-        "  -t <name>     TAP interface name (default: l2bridge)\n"
+        "  -t <name>     TAP interface name (default: rvr_bridge)\n"
         "  -u <script>   Up script (run after TAP creation)\n"
         "  -d <script>   Down script (run before shutdown)\n"
-        "  -s <file>     Stats file path (default: /tmp/l2tap.stats)\n"
+        "  -s <file>     Stats file path (default: /tmp/tap2tcp.stats)\n"
         "  -L <ms>       Soft latency cut — warn when frame age exceeds this (default: 1000)\n"
         "  -H <ms>       Hard latency cut — drop frames older than this (default: 2000)\n"
         "  -v            Verbose logging\n"
         "  -h            Show this help\n"
         "\n"
-        "Server mode (GCS):     l2tap -m server -l 127.0.0.1:655\n"
-        "Client mode (Aircraft): l2tap -m client -c 127.0.0.1:4001\n"
+        "Server mode (GCS):     tap2tcp -m server -l 127.0.0.1:655\n"
+        "Client mode (Aircraft): tap2tcp -m client -c 127.0.0.1:4001\n"
         , prog);
 }
 
@@ -78,8 +78,8 @@ int main(int argc, char *argv[])
 {
     memset(&g_ctx, 0, sizeof(g_ctx));
     g_ctx.cfg.mode = -1;
-    strncpy(g_ctx.cfg.tap_name, "l2bridge", sizeof(g_ctx.cfg.tap_name) - 1);
-    strncpy(g_ctx.cfg.stats_file, "/tmp/l2tap.stats", sizeof(g_ctx.cfg.stats_file) - 1);
+    strncpy(g_ctx.cfg.tap_name, "rvr_bridge", sizeof(g_ctx.cfg.tap_name) - 1);
+    strncpy(g_ctx.cfg.stats_file, "/tmp/tap2tcp.stats", sizeof(g_ctx.cfg.stats_file) - 1);
     g_ctx.cfg.soft_latency_ms = 1000;
     g_ctx.cfg.hard_latency_ms = 2000;
 
@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
 
     log_set_verbose(g_ctx.cfg.verbose);
 
-    LOG_INFO("l2tap starting (mode=%s tap=%s)",
+    LOG_INFO("tap2tcp starting (mode=%s tap=%s)",
              g_ctx.cfg.mode == MODE_SERVER ? "server" : "client",
              g_ctx.cfg.tap_name);
 
@@ -242,6 +242,6 @@ int main(int argc, char *argv[])
     /* Write final stats */
     stats_write_file(&g_ctx);
 
-    LOG_INFO("l2tap stopped");
+    LOG_INFO("tap2tcp stopped");
     return ret;
 }

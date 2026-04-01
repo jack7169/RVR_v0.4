@@ -22,9 +22,9 @@ export function useNetHistory(status: StatusResponse | null) {
   useEffect(() => {
     if (!status) return;
     const now = status.network_stats.timestamp_ms;
-    const rx = status.network_stats.l2bridge.rx_bytes;
-    const tx = status.network_stats.l2bridge.tx_bytes;
-    const pkts = status.network_stats.l2bridge.rx_packets + status.network_stats.l2bridge.tx_packets;
+    const rx = status.network_stats.rvr_bridge.rx_bytes;
+    const tx = status.network_stats.rvr_bridge.tx_bytes;
+    const pkts = status.network_stats.rvr_bridge.rx_packets + status.network_stats.rvr_bridge.tx_packets;
 
     const prev = prevRef.current;
     if (prev && now > prev.t) {

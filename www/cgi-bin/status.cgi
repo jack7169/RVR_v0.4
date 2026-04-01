@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# L2Bridge Web UI - Status API
+# RVR Web UI - Status API
 # Returns JSON with GCS and aircraft status
 #
 
@@ -9,11 +9,11 @@ echo "Cache-Control: no-cache"
 echo ""
 
 # Configuration
-AIRCRAFT_FILE="/etc/l2bridge/aircraft.json"
-STATE_FILE="/etc/l2bridge.conf"
-HEALTH_FILE="/tmp/l2bridge.health"
+AIRCRAFT_FILE="/etc/rvr/aircraft.json"
+STATE_FILE="/etc/rvr.conf"
+HEALTH_FILE="/tmp/rvr.health"
 SSH_KEY="/root/.ssh/id_dropbear"
-CONNECTED_SINCE_FILE="/tmp/l2bridge.connected"
+CONNECTED_SINCE_FILE="/tmp/rvr.connected"
 
 # Helper: escape string for JSON
 json_escape() {
@@ -48,43 +48,43 @@ else
     pgrep -f kcptun >/dev/null 2>&1 && KCPTUN_STATUS="running"
 fi
 
-L2TAP_STATUS="stopped"
-pgrep l2tap >/dev/null 2>&1 && L2TAP_STATUS="running"
+TAP2TCP_STATUS="stopped"
+pgrep tap2tcp >/dev/null 2>&1 && TAP2TCP_STATUS="running"
 
 IFACE_STATUS="down"
 IFACE_MTU="0"
-if ip link show l2bridge >/dev/null 2>&1; then
+if ip link show rvr_bridge >/dev/null 2>&1; then
     IFACE_STATUS="up"
-    IFACE_MTU=$(ip link show l2bridge 2>/dev/null | grep -o 'mtu [0-9]*' | cut -d' ' -f2)
+    IFACE_MTU=$(ip link show rvr_bridge 2>/dev/null | grep -o 'mtu [0-9]*' | cut -d' ' -f2)
 fi
 
-# Get l2tap stats
-L2TAP_STREAMS=0
-L2TAP_MAX_STREAMS=32
-L2TAP_FLOWS=0
-L2TAP_BCAST="down"
-L2TAP_TAP_RX_FRAMES=0
-L2TAP_TAP_RX_BYTES=0
-L2TAP_TAP_TX_FRAMES=0
-L2TAP_TAP_TX_BYTES=0
-if [ -f /tmp/l2tap.stats ]; then
-    . /tmp/l2tap.stats
-    L2TAP_STREAMS="${STREAMS:-0}"
-    L2TAP_MAX_STREAMS="${MAX_STREAMS:-32}"
-    L2TAP_FLOWS="${FLOWS:-0}"
-    L2TAP_BCAST="${BCAST_STREAM:-down}"
-    L2TAP_TAP_RX_FRAMES="${TAP_RX_FRAMES:-0}"
-    L2TAP_TAP_RX_BYTES="${TAP_RX_BYTES:-0}"
-    L2TAP_TAP_TX_FRAMES="${TAP_TX_FRAMES:-0}"
-    L2TAP_TAP_TX_BYTES="${TAP_TX_BYTES:-0}"
-    L2TAP_SOFT_DROPS="${SOFT_DROPS:-0}"
-    L2TAP_HARD_DROPS="${HARD_DROPS:-0}"
-    L2TAP_SEQ_DROPS="${SEQ_DROPS:-0}"
+# Get tap2tcp stats
+TAP2TCP_STREAMS=0
+TAP2TCP_MAX_STREAMS=32
+TAP2TCP_FLOWS=0
+TAP2TCP_BCAST="down"
+TAP2TCP_TAP_RX_FRAMES=0
+TAP2TCP_TAP_RX_BYTES=0
+TAP2TCP_TAP_TX_FRAMES=0
+TAP2TCP_TAP_TX_BYTES=0
+if [ -f /tmp/tap2tcp.stats ]; then
+    . /tmp/tap2tcp.stats
+    TAP2TCP_STREAMS="${STREAMS:-0}"
+    TAP2TCP_MAX_STREAMS="${MAX_STREAMS:-32}"
+    TAP2TCP_FLOWS="${FLOWS:-0}"
+    TAP2TCP_BCAST="${BCAST_STREAM:-down}"
+    TAP2TCP_TAP_RX_FRAMES="${TAP_RX_FRAMES:-0}"
+    TAP2TCP_TAP_RX_BYTES="${TAP_RX_BYTES:-0}"
+    TAP2TCP_TAP_TX_FRAMES="${TAP_TX_FRAMES:-0}"
+    TAP2TCP_TAP_TX_BYTES="${TAP_TX_BYTES:-0}"
+    TAP2TCP_SOFT_DROPS="${SOFT_DROPS:-0}"
+    TAP2TCP_HARD_DROPS="${HARD_DROPS:-0}"
+    TAP2TCP_SEQ_DROPS="${SEQ_DROPS:-0}"
 fi
 
 # Check watchdog status
 WATCHDOG_STATUS="inactive"
-crontab -l 2>/dev/null | grep -q "l2bridge-watchdog" && WATCHDOG_STATUS="active"
+crontab -l 2>/dev/null | grep -q "rvr-watchdog" && WATCHDOG_STATUS="active"
 
 # Read health file
 HEALTH_STATUS="unknown"
@@ -136,12 +136,12 @@ fi
 # Check aircraft status
 AIRCRAFT_REACHABLE="false"
 AIRCRAFT_KCPTUN="unknown"
-AIRCRAFT_L2TAP="unknown"
+AIRCRAFT_TAP2TCP="unknown"
 AIRCRAFT_IFACE="unknown"
 
 if [ -n "$AIRCRAFT_IP" ]; then
     # Cache remote status for 10 seconds to prevent process storms at 1-3s polling
-    REMOTE_CACHE="/tmp/l2bridge-remote-cache"
+    REMOTE_CACHE="/tmp/rvr-remote-cache"
     CACHE_VALID=0
     if [ -f "$REMOTE_CACHE" ]; then
         CACHE_TS=$(head -1 "$REMOTE_CACHE" 2>/dev/null)
@@ -150,7 +150,7 @@ if [ -n "$AIRCRAFT_IP" ]; then
             CACHE_VALID=1
             AIRCRAFT_REACHABLE=$(sed -n '2p' "$REMOTE_CACHE")
             AIRCRAFT_KCPTUN=$(sed -n '3p' "$REMOTE_CACHE")
-            AIRCRAFT_L2TAP=$(sed -n '4p' "$REMOTE_CACHE")
+            AIRCRAFT_TAP2TCP=$(sed -n '4p' "$REMOTE_CACHE")
             AIRCRAFT_IFACE=$(sed -n '5p' "$REMOTE_CACHE")
         fi
     fi
@@ -164,26 +164,26 @@ if [ -n "$AIRCRAFT_IP" ]; then
         DISC_JSON=$(wget -q -T 2 -O- "http://${AIRCRAFT_IP}:8081/cgi-bin/discovery.cgi" 2>/dev/null)
         if [ -n "$DISC_JSON" ]; then
             AIRCRAFT_KCPTUN=$(echo "$DISC_JSON" | sed -n 's/.*"kcptun"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            AIRCRAFT_L2TAP=$(echo "$DISC_JSON" | sed -n 's/.*"l2tap"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            AIRCRAFT_IFACE=$(echo "$DISC_JSON" | sed -n 's/.*"l2bridge_interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            AIRCRAFT_TAP2TCP=$(echo "$DISC_JSON" | sed -n 's/.*"tap2tcp"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            AIRCRAFT_IFACE=$(echo "$DISC_JSON" | sed -n 's/.*"rvr_bridge_interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
         elif [ -f "$SSH_KEY" ]; then
             # Fallback to SSH
             remote_kcptun_proc="kcptun-server"
             [ "$LOCAL_ROLE" = "gcs" ] && remote_kcptun_proc="kcptun-client"
             REMOTE_STATUS=$(timeout 5 dbclient -i "$SSH_KEY" -y root@"$AIRCRAFT_IP" "
                 pgrep -f $remote_kcptun_proc >/dev/null && echo -n 'running ' || echo -n 'stopped '
-                pgrep l2tap >/dev/null && echo -n 'running ' || echo -n 'stopped '
-                ip link show l2bridge >/dev/null 2>&1 && echo 'up' || echo 'down'
+                pgrep tap2tcp >/dev/null && echo -n 'running ' || echo -n 'stopped '
+                ip link show rvr_bridge >/dev/null 2>&1 && echo 'up' || echo 'down'
             " 2>/dev/null)
             if [ -n "$REMOTE_STATUS" ]; then
                 AIRCRAFT_KCPTUN=$(echo "$REMOTE_STATUS" | awk '{print $1}')
-                AIRCRAFT_L2TAP=$(echo "$REMOTE_STATUS" | awk '{print $2}')
+                AIRCRAFT_TAP2TCP=$(echo "$REMOTE_STATUS" | awk '{print $2}')
                 AIRCRAFT_IFACE=$(echo "$REMOTE_STATUS" | awk '{print $3}')
             fi
         fi
     fi
     # Write cache
-    printf '%s\n%s\n%s\n%s\n%s\n' "$NOW_S" "$AIRCRAFT_REACHABLE" "$AIRCRAFT_KCPTUN" "$AIRCRAFT_L2TAP" "$AIRCRAFT_IFACE" > "$REMOTE_CACHE"
+    printf '%s\n%s\n%s\n%s\n%s\n' "$NOW_S" "$AIRCRAFT_REACHABLE" "$AIRCRAFT_KCPTUN" "$AIRCRAFT_TAP2TCP" "$AIRCRAFT_IFACE" > "$REMOTE_CACHE"
     fi  # end CACHE_VALID check
 fi
 
@@ -263,9 +263,9 @@ fi
 CONNECTION_ESTABLISHED="false"
 CONNECTION_DURATION=0
 
-# Connection requires: local kcptun + l2tap running + remote peer reachable
+# Connection requires: local kcptun + tap2tcp running + remote peer reachable
 # Reset uptime when connection drops, restart when it comes back
-if [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
+if [ "$KCPTUN_STATUS" = "running" ] && [ "$TAP2TCP_STATUS" = "running" ] && \
    [ "$IFACE_STATUS" = "up" ] && [ "$AIRCRAFT_REACHABLE" = "true" ]; then
     CONNECTION_ESTABLISHED="true"
     if [ ! -f "$CONNECTED_SINCE_FILE" ]; then
@@ -274,7 +274,7 @@ if [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
     CONNECTED_SINCE=$(cat "$CONNECTED_SINCE_FILE" 2>/dev/null)
     NOW=$(date +%s)
     CONNECTION_DURATION=$((NOW - CONNECTED_SINCE))
-elif [ "$KCPTUN_STATUS" = "running" ] && [ "$L2TAP_STATUS" = "running" ] && \
+elif [ "$KCPTUN_STATUS" = "running" ] && [ "$TAP2TCP_STATUS" = "running" ] && \
      [ "$IFACE_STATUS" = "up" ]; then
     # Services up but remote unreachable — keep connected status briefly (may be transient)
     if [ -f "$CONNECTED_SINCE_FILE" ]; then
@@ -288,28 +288,28 @@ else
     rm -f "$CONNECTED_SINCE_FILE" 2>/dev/null
 fi
 
-# Network statistics for l2bridge interface
-L2B_STATS_DIR="/sys/class/net/l2bridge/statistics"
-L2B_RX_BYTES=0
-L2B_TX_BYTES=0
-L2B_RX_PACKETS=0
-L2B_TX_PACKETS=0
-L2B_RX_ERRORS=0
-L2B_TX_ERRORS=0
-L2B_RX_DROPPED=0
-L2B_TX_DROPPED=0
-L2B_MULTICAST=0
+# Network statistics for rvr_bridge interface
+RVR_B_STATS_DIR="/sys/class/net/rvr_bridge/statistics"
+RVR_B_RX_BYTES=0
+RVR_B_TX_BYTES=0
+RVR_B_RX_PACKETS=0
+RVR_B_TX_PACKETS=0
+RVR_B_RX_ERRORS=0
+RVR_B_TX_ERRORS=0
+RVR_B_RX_DROPPED=0
+RVR_B_TX_DROPPED=0
+RVR_B_MULTICAST=0
 
-if [ -d "$L2B_STATS_DIR" ]; then
-    L2B_RX_BYTES=$(cat "$L2B_STATS_DIR/rx_bytes" 2>/dev/null || echo 0)
-    L2B_TX_BYTES=$(cat "$L2B_STATS_DIR/tx_bytes" 2>/dev/null || echo 0)
-    L2B_RX_PACKETS=$(cat "$L2B_STATS_DIR/rx_packets" 2>/dev/null || echo 0)
-    L2B_TX_PACKETS=$(cat "$L2B_STATS_DIR/tx_packets" 2>/dev/null || echo 0)
-    L2B_RX_ERRORS=$(cat "$L2B_STATS_DIR/rx_errors" 2>/dev/null || echo 0)
-    L2B_TX_ERRORS=$(cat "$L2B_STATS_DIR/tx_errors" 2>/dev/null || echo 0)
-    L2B_RX_DROPPED=$(cat "$L2B_STATS_DIR/rx_dropped" 2>/dev/null || echo 0)
-    L2B_TX_DROPPED=$(cat "$L2B_STATS_DIR/tx_dropped" 2>/dev/null || echo 0)
-    L2B_MULTICAST=$(cat "$L2B_STATS_DIR/multicast" 2>/dev/null || echo 0)
+if [ -d "$RVR_B_STATS_DIR" ]; then
+    RVR_B_RX_BYTES=$(cat "$RVR_B_STATS_DIR/rx_bytes" 2>/dev/null || echo 0)
+    RVR_B_TX_BYTES=$(cat "$RVR_B_STATS_DIR/tx_bytes" 2>/dev/null || echo 0)
+    RVR_B_RX_PACKETS=$(cat "$RVR_B_STATS_DIR/rx_packets" 2>/dev/null || echo 0)
+    RVR_B_TX_PACKETS=$(cat "$RVR_B_STATS_DIR/tx_packets" 2>/dev/null || echo 0)
+    RVR_B_RX_ERRORS=$(cat "$RVR_B_STATS_DIR/rx_errors" 2>/dev/null || echo 0)
+    RVR_B_TX_ERRORS=$(cat "$RVR_B_STATS_DIR/tx_errors" 2>/dev/null || echo 0)
+    RVR_B_RX_DROPPED=$(cat "$RVR_B_STATS_DIR/rx_dropped" 2>/dev/null || echo 0)
+    RVR_B_TX_DROPPED=$(cat "$RVR_B_STATS_DIR/tx_dropped" 2>/dev/null || echo 0)
+    RVR_B_MULTICAST=$(cat "$RVR_B_STATS_DIR/multicast" 2>/dev/null || echo 0)
 fi
 
 # Tailscale interface statistics (for WAN traffic comparison)
@@ -334,12 +334,12 @@ STATS_TIMESTAMP=$(($(date +%s) * 1000))
 
 # Append to rolling stats history — throttled to max 1 write per 3 seconds
 # Prevents /tmp exhaustion when UI polls at 1-3s intervals with multiple tabs
-STATS_HISTORY="/tmp/l2bridge-stats.csv"
-STATS_LAST="/tmp/l2bridge-stats-last"
+STATS_HISTORY="/tmp/rvr-stats.csv"
+STATS_LAST="/tmp/rvr-stats-last"
 NOW_S=$(date +%s)
 LAST_WRITE=$(cat "$STATS_LAST" 2>/dev/null || echo 0)
 if [ $((NOW_S - LAST_WRITE)) -ge 3 ]; then
-    echo "$STATS_TIMESTAMP|$L2B_RX_BYTES|$L2B_TX_BYTES|$L2B_RX_PACKETS|$L2B_TX_PACKETS|$L2B_RX_ERRORS|$L2B_TX_ERRORS|$((L2B_RX_DROPPED + L2B_TX_DROPPED))" >> "$STATS_HISTORY" 2>/dev/null
+    echo "$STATS_TIMESTAMP|$RVR_B_RX_BYTES|$RVR_B_TX_BYTES|$RVR_B_RX_PACKETS|$RVR_B_TX_PACKETS|$RVR_B_RX_ERRORS|$RVR_B_TX_ERRORS|$((RVR_B_RX_DROPPED + RVR_B_TX_DROPPED))" >> "$STATS_HISTORY" 2>/dev/null
     echo "$NOW_S" > "$STATS_LAST"
     # Inline rotation — cap at 8640 lines (~7.2h at 3s throttle)
     if [ "$(wc -l < "$STATS_HISTORY" 2>/dev/null || echo 0)" -gt 8640 ]; then
@@ -351,9 +351,9 @@ fi
 FILTER_ACTIVE="false"
 FILTER_DROPPED_PKTS=0
 FILTER_DROPPED_BYTES=0
-if nft list table bridge l2bridge_filter >/dev/null 2>&1; then
+if nft list table bridge rvr_filter >/dev/null 2>&1; then
     FILTER_ACTIVE="true"
-    FILTER_STATS=$(nft list chain bridge l2bridge_filter forward 2>/dev/null)
+    FILTER_STATS=$(nft list chain bridge rvr_filter forward 2>/dev/null)
     # Sum counters from both drop rules
     FILTER_DROPPED_PKTS=$(echo "$FILTER_STATS" | grep "counter" | grep "drop" | sed 's/.*packets \([0-9]*\).*/\1/' | awk '{s+=$1} END {print s+0}')
     FILTER_DROPPED_BYTES=$(echo "$FILTER_STATS" | grep "counter" | grep "drop" | sed 's/.*bytes \([0-9]*\).*/\1/' | awk '{s+=$1} END {print s+0}')
@@ -363,9 +363,9 @@ fi
 CAPTURE_ACTIVE="false"
 CAPTURE_ELAPSED=0
 CAPTURE_FILE_SIZE=0
-CAPTURE_PID_FILE="/tmp/l2bridge-capture.pid"
-CAPTURE_START_FILE="/tmp/l2bridge-capture.start"
-CAPTURE_FILE="/tmp/l2bridge-capture.pcap"
+CAPTURE_PID_FILE="/tmp/rvr-capture.pid"
+CAPTURE_START_FILE="/tmp/rvr-capture.start"
+CAPTURE_FILE="/tmp/rvr-capture.pcap"
 if [ -f "$CAPTURE_PID_FILE" ]; then
     CAPTURE_PID=$(cat "$CAPTURE_PID_FILE")
     if kill -0 "$CAPTURE_PID" 2>/dev/null; then
@@ -381,14 +381,14 @@ fi
 [ -f "$CAPTURE_FILE" ] && CAPTURE_FILE_SIZE=$(wc -c < "$CAPTURE_FILE" 2>/dev/null || echo 0)
 
 # Version tracking
-VERSION_CURRENT=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
-VERSION_BRANCH=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+VERSION_CURRENT=$(cat /etc/rvr/version 2>/dev/null || echo "unknown")
+VERSION_BRANCH=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
 VERSION_LATEST=""
 VERSION_UPDATE="false"
-REPO_PATH=$(cat /etc/l2bridge/repo 2>/dev/null || echo "")
+REPO_PATH=$(cat /etc/rvr/repo 2>/dev/null || echo "")
 
 if [ -n "$REPO_PATH" ] && [ "$VERSION_CURRENT" != "unknown" ]; then
-    CACHE_FILE="/tmp/l2bridge-latest-version"
+    CACHE_FILE="/tmp/rvr-latest-version"
     CACHE_AGE=600  # 10 minutes
     # Use cached value if fresh enough
     if [ -f "$CACHE_FILE" ]; then
@@ -407,7 +407,7 @@ if [ -n "$REPO_PATH" ] && [ "$VERSION_CURRENT" != "unknown" ]; then
     # Only show update if latest differs from current AND version file is older than cache
     # This prevents false positives when we just updated (version file is newer than cache)
     if [ -n "$VERSION_LATEST" ] && [ "$VERSION_LATEST" != "$VERSION_CURRENT" ]; then
-        VERSION_FILE="/etc/l2bridge/version"
+        VERSION_FILE="/etc/rvr/version"
         if [ -f "$CACHE_FILE" ] && [ -f "$VERSION_FILE" ]; then
             CACHE_MTIME=$(date -r "$CACHE_FILE" +%s 2>/dev/null || echo 0)
             VERSION_MTIME=$(date -r "$VERSION_FILE" +%s 2>/dev/null || echo 0)
@@ -434,26 +434,26 @@ cat << EOF
     "tailscale_status": "$GCS_TS_STATUS",
     "services": {
       "kcptun_server": "$KCPTUN_STATUS",
-      "l2tap": "$L2TAP_STATUS",
-      "l2bridge_interface": "$IFACE_STATUS"
+      "tap2tcp": "$TAP2TCP_STATUS",
+      "rvr_bridge_interface": "$IFACE_STATUS"
     },
     "interface": {
-      "name": "l2bridge",
+      "name": "rvr_bridge",
       "mtu": ${IFACE_MTU:-0},
       "state": "$IFACE_STATUS"
     },
-    "l2tap_streams": {
-      "active": $L2TAP_STREAMS,
-      "max": $L2TAP_MAX_STREAMS,
-      "flows": $L2TAP_FLOWS,
-      "broadcast_stream": "$L2TAP_BCAST",
-      "tap_rx_frames": $L2TAP_TAP_RX_FRAMES,
-      "tap_rx_bytes": $L2TAP_TAP_RX_BYTES,
-      "tap_tx_frames": $L2TAP_TAP_TX_FRAMES,
-      "tap_tx_bytes": $L2TAP_TAP_TX_BYTES,
-      "soft_drops": ${L2TAP_SOFT_DROPS:-0},
-      "hard_drops": ${L2TAP_HARD_DROPS:-0},
-      "seq_drops": ${L2TAP_SEQ_DROPS:-0}
+    "tap2tcp_streams": {
+      "active": $TAP2TCP_STREAMS,
+      "max": $TAP2TCP_MAX_STREAMS,
+      "flows": $TAP2TCP_FLOWS,
+      "broadcast_stream": "$TAP2TCP_BCAST",
+      "tap_rx_frames": $TAP2TCP_TAP_RX_FRAMES,
+      "tap_rx_bytes": $TAP2TCP_TAP_RX_BYTES,
+      "tap_tx_frames": $TAP2TCP_TAP_TX_FRAMES,
+      "tap_tx_bytes": $TAP2TCP_TAP_TX_BYTES,
+      "soft_drops": ${TAP2TCP_SOFT_DROPS:-0},
+      "hard_drops": ${TAP2TCP_HARD_DROPS:-0},
+      "seq_drops": ${TAP2TCP_SEQ_DROPS:-0}
     },
     "watchdog": "$WATCHDOG_STATUS",
     "health": {
@@ -475,8 +475,8 @@ cat << EOF
     },
     "services": {
       "kcptun_client": "$AIRCRAFT_KCPTUN",
-      "l2tap": "$AIRCRAFT_L2TAP",
-      "l2bridge_interface": "$AIRCRAFT_IFACE"
+      "tap2tcp": "$AIRCRAFT_TAP2TCP",
+      "rvr_bridge_interface": "$AIRCRAFT_IFACE"
     }
   },
   "connection": {
@@ -485,16 +485,16 @@ cat << EOF
   },
   "network_stats": {
     "timestamp_ms": $STATS_TIMESTAMP,
-    "l2bridge": {
-      "rx_bytes": $L2B_RX_BYTES,
-      "tx_bytes": $L2B_TX_BYTES,
-      "rx_packets": $L2B_RX_PACKETS,
-      "tx_packets": $L2B_TX_PACKETS,
-      "rx_errors": $L2B_RX_ERRORS,
-      "tx_errors": $L2B_TX_ERRORS,
-      "rx_dropped": $L2B_RX_DROPPED,
-      "tx_dropped": $L2B_TX_DROPPED,
-      "multicast": $L2B_MULTICAST
+    "rvr_bridge": {
+      "rx_bytes": $RVR_B_RX_BYTES,
+      "tx_bytes": $RVR_B_TX_BYTES,
+      "rx_packets": $RVR_B_RX_PACKETS,
+      "tx_packets": $RVR_B_TX_PACKETS,
+      "rx_errors": $RVR_B_RX_ERRORS,
+      "tx_errors": $RVR_B_TX_ERRORS,
+      "rx_dropped": $RVR_B_RX_DROPPED,
+      "tx_dropped": $RVR_B_TX_DROPPED,
+      "multicast": $RVR_B_MULTICAST
     },
     "tailscale": {
       "interface": "$TS_IFACE",

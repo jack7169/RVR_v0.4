@@ -2,11 +2,11 @@
 *.swp
 *.swo
 
-# l2tap build artifacts
-l2tap/build/
-l2tap/src/*.o
-l2tap/l2tap
-l2tap/l2tap-aarch64
+# tap2tcp build artifacts
+tap2tcp/build/
+tap2tcp/src/*.o
+tap2tcp/tap2tcp
+tap2tcp/tap2tcp-aarch64
 
 # Web UI
 www-next/node_modules/
@@ -16,3 +16,4 @@ www-next/dist/
 # Runtime
 *.log
 *.pid
+.playwright-mcp/

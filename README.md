@@ -1,10 +1,10 @@
-# RVR v0.4 — Multi-Stream L2 Bridge
+# RVR v0.4 — Multi-Stream RVR
 
 Multi-stream Layer 2 bridge for BVLOS remotely piloted aircraft over Starlink satellite networks.
 
 ## What's New in v0.4
 
-- **l2tap proxy** replaces tinc — per-flow multi-stream tunneling eliminates head-of-line blocking (up to 128 streams)
+- **tap2tcp proxy** replaces tinc — per-flow multi-stream tunneling eliminates head-of-line blocking (up to 128 streams)
 - **Adaptive buffer sizing** — buffers auto-computed from link speed + latency budget (no more hardcoded 8MB buffers)
 - **Link quality monitoring** — Starlink-style outage panel with KCPtun retransmit tracking, timeline, uptime %
 - **Latency thresholds** — soft/hard drop at 1s/2s prevents stale data from consuming bandwidth
@@ -27,10 +27,10 @@ Ground Control Station (GCS)                          Aircraft
 │    │                        │                      │    │                        │
 │    ├── eth0 (cameras, etc.) │                      │    ├── eth0 (cameras, etc.) │
 │    │                        │                      │    │                        │
-│    └── TAP (l2bridge)       │                      │    └── TAP (l2bridge)       │
+│    └── TAP (rvr)       │                      │    └── TAP (rvr)       │
 │         │                   │                      │         │                   │
 │     ┌───┴───┐               │                      │     ┌───┴───┐               │
-│     │ l2tap │ (server)      │                      │     │ l2tap │ (client)      │
+│     │ tap2tcp │ (server)      │                      │     │ tap2tcp │ (client)      │
 │     └─┬─┬─┬─┘              │                      │     └─┬─┬─┬─┘              │
 │       │ │ │  N TCP conns    │                      │       │ │ │  N TCP conns    │
 │     ┌─┴─┴─┴─┐              │                      │     ┌─┴─┴─┴─┐              │
@@ -47,7 +47,7 @@ Ground Control Station (GCS)                          Aircraft
 
 ### How It Works
 
-1. **l2tap** reads Ethernet frames from a TAP interface bridged to br-lan
+1. **tap2tcp** reads Ethernet frames from a TAP interface bridged to br-lan
 2. Each frame is classified by its src+dst MAC pair (asymmetric — each direction is a separate flow)
 3. Each unique flow gets its own TCP connection to kcptun
 4. **kcptun** multiplexes each TCP connection as a separate smux v2 stream over a single KCP/UDP tunnel
@@ -84,14 +84,14 @@ curl -fsSL https://raw.githubusercontent.com/jack7169/RVR_v0.4/main/install.sh |
 
 ### Bind Aircraft (CLI)
 ```bash
-l2bridge setup <aircraft_ip> <aircraft_name>
+rvr setup <aircraft_ip> <aircraft_name>
 ```
 
 ### Update
 ```bash
-l2bridge update                    # Update current branch
-l2bridge update --branch dev       # Switch to dev branch
-l2bridge branches                  # List available remote branches
+rvr update                    # Update current branch
+rvr update --branch dev       # Switch to dev branch
+rvr branches                  # List available remote branches
 ```
 
 ## Web UI
@@ -127,15 +127,15 @@ The control panel runs on port 8081 with three tabs:
 React 19, Vite 8, Tailwind CSS 4, TypeScript 5.9, recharts, @tanstack/react-query, @radix-ui (dialog/tabs/tooltip), sonner, lucide-react, date-fns, react-hook-form + zod
 
 ### Backend
-POSIX sh CGI scripts on uhttpd (OpenWrt), l2tap C proxy (epoll, static musl binary)
+POSIX sh CGI scripts on uhttpd (OpenWrt), tap2tcp C proxy (epoll, static musl binary)
 
 ### CI
-GitHub Actions: Node 22 for web UI build, aarch64-linux-gnu-gcc for l2tap cross-compile
+GitHub Actions: Node 22 for web UI build, aarch64-linux-gnu-gcc for tap2tcp cross-compile
 
 ## Requirements
 
 - OpenWrt 23.05+ on aarch64 (tested: GL.iNet GL-BE3600 "Slate 7", GL-A1300)
-- ~61 MB flash for install (packages + git + l2tap binary + web UI)
+- ~61 MB flash for install (packages + git + tap2tcp binary + web UI)
 - WireGuard-based VPN (Tailscale, Headscale, or raw WireGuard)
 - Starlink or other WAN connectivity
 
@@ -143,11 +143,11 @@ GitHub Actions: Node 22 for web UI build, aarch64-linux-gnu-gcc for l2tap cross-
 
 ```
 RVR_v0.4/
-├── l2tap/                  # C proxy source (epoll, 128 max streams)
-│   ├── include/l2tap.h     # Constants, structs, prototypes
+├── tap2tcp/                  # C proxy source (epoll, 128 max streams)
+│   ├── include/tap2tcp.h     # Constants, structs, prototypes
 │   ├── src/                # main, tap, frame, flow, stream, loop, log
 │   └── Makefile            # Host + aarch64 cross-compile
-├── l2bridge                # Main CLI script (~1900 lines, POSIX sh)
+├── rvr                # Main CLI script (~1900 lines, POSIX sh)
 ├── install.sh              # Bootstrap installer for OpenWrt
 ├── www-next/               # React UI source (built by CI)
 │   └── src/
@@ -158,9 +158,9 @@ RVR_v0.4/
 ├── www/                    # Built UI + CGI backend (deployed to device)
 │   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi, discovery.cgi
 │   └── assets/             # Code-split JS/CSS chunks (committed by CI)
-├── packages/               # Offline .ipk bundle + l2tap binary
+├── packages/               # Offline .ipk bundle + tap2tcp binary
 ├── docs/                   # Technical reference docs (update system, etc.)
-└── .github/workflows/      # CI: build-l2tap.yml, build-ui.yml
+└── .github/workflows/      # CI: build-tap2tcp.yml, build-ui.yml
 ```
 
 ## CI / Build
@@ -168,13 +168,13 @@ RVR_v0.4/
 | Workflow | Trigger | Output |
 |----------|---------|--------|
 | **Build Web UI** | Push to `www-next/**` | Code-split chunks to `www/assets/` |
-| **Build l2tap** | Push to `l2tap/**` | `packages/common/l2tap-aarch64` |
+| **Build tap2tcp** | Push to `tap2tcp/**` | `packages/common/tap2tcp-aarch64` |
 
 ### Local Development
 ```bash
 cd www-next && npm ci && npm run dev   # UI dev server (proxies CGI to router)
-cd l2tap && make                        # Host build (testing)
-cd l2tap && make cross                  # aarch64 cross-compile
+cd tap2tcp && make                        # Host build (testing)
+cd tap2tcp && make cross                  # aarch64 cross-compile
 ```
 
 ## System Health & Logging
@@ -203,17 +203,17 @@ The watchdog (runs every minute via cron) monitors `/overlay` free space and adj
 
 | File | Type | Growth | Cap |
 |------|------|--------|-----|
-| `l2bridge-stats.csv` | Append (throttled) | ~1 line/3s | 8640 lines inline |
+| `rvr-stats.csv` | Append (throttled) | ~1 line/3s | 8640 lines inline |
 | `kcptun-snmp.log` | Append (kcptun) | ~1 line/5s | Dynamic (watchdog) |
-| `l2bridge-watchdog.log` | Append (cron) | ~1 line/min | Dynamic (watchdog) |
-| `l2tap.stats` | Overwrite | ~1 KB fixed | N/A |
-| `l2bridge-discovery-cache.json` | Overwrite | ~2-5 KB | N/A |
-| `l2bridge-setup.log` | Append (on bind) | Event-driven | 1 MB |
+| `rvr-watchdog.log` | Append (cron) | ~1 line/min | Dynamic (watchdog) |
+| `tap2tcp.stats` | Overwrite | ~1 KB fixed | N/A |
+| `rvr-discovery-cache.json` | Overwrite | ~2-5 KB | N/A |
+| `rvr-setup.log` | Append (on bind) | Event-driven | 1 MB |
 
 ### Orphan Process Prevention
 
 - Watchdog kills orphaned `grep`/`tail` processes (parent PID = 1)
-- Stale temp files (`l2bridge-disc-*`, `l2bridge-logs-*.fifo`) cleaned after 1 hour
+- Stale temp files (`rvr-disc-*`, `rvr-logs-*.fifo`) cleaned after 1 hour
 - SSE log viewer kills entire process group on disconnect or 5-minute timeout
 
 ## License

@@ -22,9 +22,9 @@ export function useRates(status: StatusResponse | null): RateData {
     if (!status) return { rxRate: 0, txRate: 0, packetRate: 0, filterDropRate: 0 };
 
     const now = status.network_stats.timestamp_ms;
-    const rx = status.network_stats.l2bridge.rx_bytes;
-    const tx = status.network_stats.l2bridge.tx_bytes;
-    const pkts = status.network_stats.l2bridge.rx_packets + status.network_stats.l2bridge.tx_packets;
+    const rx = status.network_stats.rvr_bridge.rx_bytes;
+    const tx = status.network_stats.rvr_bridge.tx_bytes;
+    const pkts = status.network_stats.rvr_bridge.rx_packets + status.network_stats.rvr_bridge.tx_packets;
     const dropped = status.bridge_filter.dropped_packets;
 
     const prev = prevRef.current;
@@ -41,7 +41,7 @@ export function useRates(status: StatusResponse | null): RateData {
       filterDropRate = Math.max(0, (dropped - prev.filterDropped) / dt);
     }
 
-    prevRef.current = { timestamp: now, rxBytes: rx, txBytes: tx, rxPackets: status.network_stats.l2bridge.rx_packets, txPackets: status.network_stats.l2bridge.tx_packets, filterDropped: dropped };
+    prevRef.current = { timestamp: now, rxBytes: rx, txBytes: tx, rxPackets: status.network_stats.rvr_bridge.rx_packets, txPackets: status.network_stats.rvr_bridge.tx_packets, filterDropped: dropped };
 
     return { rxRate, txRate, packetRate, filterDropRate };
   }, [status]);

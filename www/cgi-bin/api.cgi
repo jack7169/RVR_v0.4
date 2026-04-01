@@ -1,14 +1,14 @@
 #!/bin/sh
 #
-# L2Bridge Web UI - Command and Profile API
-# Handles l2bridge commands and aircraft profile management
+# RVR Web UI - Command and Profile API
+# Handles RVR commands and aircraft profile management
 #
 
 # Configuration
-AIRCRAFT_FILE="/etc/l2bridge/aircraft.json"
-CONFIG_DIR="/etc/l2bridge"
-LOCK_FILE="/tmp/l2bridge-webui.lock"
-L2BRIDGE="/usr/bin/l2bridge"
+AIRCRAFT_FILE="/etc/rvr/aircraft.json"
+CONFIG_DIR="/etc/rvr"
+LOCK_FILE="/tmp/rvr-webui.lock"
+RVR_BIN="/usr/bin/rvr"
 
 # Helper: output JSON response
 json_response() {
@@ -89,8 +89,8 @@ parse_json() {
     echo "$json" | sed -n "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
 }
 
-# Execute l2bridge command
-run_l2bridge_command() {
+# Execute rvr command
+run_rvr_command() {
     local cmd="$1"
     local aircraft_ip="$2"
     local aircraft_name="$3"
@@ -102,13 +102,13 @@ run_l2bridge_command() {
     local exit_code
 
     if [ -n "$aircraft_name" ]; then
-        output=$("$L2BRIDGE" "$cmd" "$aircraft_ip" "$aircraft_name" 2>&1)
+        output=$("$RVR_BIN" "$cmd" "$aircraft_ip" "$aircraft_name" 2>&1)
         exit_code=$?
     elif [ -n "$aircraft_ip" ]; then
-        output=$("$L2BRIDGE" "$cmd" "$aircraft_ip" 2>&1)
+        output=$("$RVR_BIN" "$cmd" "$aircraft_ip" 2>&1)
         exit_code=$?
     else
-        output=$("$L2BRIDGE" "$cmd" 2>&1)
+        output=$("$RVR_BIN" "$cmd" 2>&1)
         exit_code=$?
     fi
 
@@ -427,9 +427,9 @@ set_active_aircraft() {
         ' "$AIRCRAFT_FILE")
     fi
 
-    # Update legacy state file for compatibility with l2bridge script
+    # Update legacy state file for compatibility with rvr script
     if [ -n "$ip" ]; then
-        echo "AIRCRAFT_IP=\"$ip\"" > /etc/l2bridge.conf
+        echo "AIRCRAFT_IP=\"$ip\"" > /etc/rvr.conf
     fi
 
     # Update last_used timestamp
@@ -522,8 +522,8 @@ probe_peer() {
 
 # Background discovery scan — runs probes and writes results to cache file
 # Called as: run_discovery_scan &
-DISCOVERY_CACHE="/tmp/l2bridge-discovery-cache.json"
-DISCOVERY_LOCK="/tmp/l2bridge-discovery.lock"
+DISCOVERY_CACHE="/tmp/rvr-discovery-cache.json"
+DISCOVERY_LOCK="/tmp/rvr-discovery.lock"
 
 run_discovery_scan() {
     # Prevent concurrent scans
@@ -535,7 +535,7 @@ run_discovery_scan() {
     local scan_timeout_pid=$!
 
     # Clean up lock, timeout, and temp files on exit
-    trap "kill $scan_timeout_pid 2>/dev/null; rm -f '$DISCOVERY_LOCK' /tmp/l2bridge-disc-peers.$$ /tmp/l2bridge-disc-results.$$" EXIT
+    trap "kill $scan_timeout_pid 2>/dev/null; rm -f '$DISCOVERY_LOCK' /tmp/rvr-disc-peers.$$ /tmp/rvr-disc-results.$$" EXIT
 
     init_aircraft_file
 
@@ -553,15 +553,15 @@ run_discovery_scan() {
     local self_role="unknown"
     [ -f /etc/init.d/kcptun-server ] && self_role="gcs"
     [ -f /etc/init.d/kcptun-client ] && self_role="aircraft"
-    local self_gitver=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
-    local self_gitbranch=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+    local self_gitver=$(cat /etc/rvr/version 2>/dev/null || echo "unknown")
+    local self_gitbranch=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
     local self_ip=$(ip -4 addr show 2>/dev/null | awk '/inet 100\./ {gsub(/\/.*/, "", $2); print $2; exit}')
 
     # Collect peer IPs from all sources
-    local tmp_peers="/tmp/l2bridge-disc-peers.$$"
+    local tmp_peers="/tmp/rvr-disc-peers.$$"
     enumerate_wg_peers > "$tmp_peers" 2>/dev/null
     [ -f "$AIRCRAFT_FILE" ] && awk '/"tailscale_ip":/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print $0"|0|0|0" }' "$AIRCRAFT_FILE" >> "$tmp_peers"
-    [ -f /etc/l2bridge/peers.conf ] && awk '/./ {print $0"|0|0|0"}' /etc/l2bridge/peers.conf >> "$tmp_peers"
+    [ -f /etc/rvr/peers.conf ] && awk '/./ {print $0"|0|0|0"}' /etc/rvr/peers.conf >> "$tmp_peers"
 
     # Deduplicate
     local tmp_sorted="${tmp_peers}.s"
@@ -569,7 +569,7 @@ run_discovery_scan() {
     mv "$tmp_sorted" "$tmp_peers"
 
     # Probe peers in parallel
-    local tmp_results="/tmp/l2bridge-disc-results.$$"
+    local tmp_results="/tmp/rvr-disc-results.$$"
     : > "$tmp_results"
     local job_count=0
 
@@ -702,14 +702,14 @@ bind_aircraft_action() {
     init_aircraft_file
     add_aircraft "$id" "$name" "$ip" "$password" > /dev/null 2>&1
     sed -i "s/\"active\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"active\": \"$id\"/" "$AIRCRAFT_FILE"
-    echo "AIRCRAFT_IP=\"$ip\"" > /etc/l2bridge.conf
+    echo "AIRCRAFT_IP=\"$ip\"" > /etc/rvr.conf
 
     # Run full setup in background
-    # l2bridge setup internally tees to /tmp/l2bridge-setup.log — don't double-redirect
-    : > /tmp/l2bridge-setup.log
+    # rvr setup internally tees to /tmp/rvr-setup.log — don't double-redirect
+    : > /tmp/rvr-setup.log
     (
-        "$L2BRIDGE" setup "$ip" "$name"
-        echo "[BIND COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
+        "$RVR_BIN" setup "$ip" "$name"
+        echo "[BIND COMPLETE] exit_code=$?" >> /tmp/rvr-setup.log
     ) &
 
     json_response "{\"success\": true, \"id\": \"$id\"}"
@@ -729,7 +729,7 @@ unbind_aircraft_action() {
 
     # Stop services and clean up
     if [ -n "$ip" ]; then
-        "$L2BRIDGE" stop "$ip" > /dev/null 2>&1 || true
+        "$RVR_BIN" stop "$ip" > /dev/null 2>&1 || true
     fi
 
     # Delete profile
@@ -752,7 +752,7 @@ connect_aircraft_action() {
 
     acquire_lock
     local output
-    output=$("$L2BRIDGE" add "$ip" 2>&1)
+    output=$("$RVR_BIN" add "$ip" 2>&1)
     local exit_code=$?
     release_lock
 
@@ -789,7 +789,7 @@ run_speedtest() {
     bridge_ip=$(_get_bridge_ip "$vpn_ip")
     if [ -z "$bridge_ip" ]; then
         results="WARNING: Could not get aircraft br-lan IP. Bridge may not be forwarding.\n"
-        results="${results}Falling back to VPN IP (bypasses l2tap/kcptun).\n\n"
+        results="${results}Falling back to VPN IP (bypasses tap2tcp/kcptun).\n\n"
         bridge_ip="$vpn_ip"
     else
         results="Testing through L2 bridge: $bridge_ip (not VPN direct)\n\n"
@@ -817,9 +817,9 @@ run_speedtest() {
 
     _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null"
 
-    if [ -f /tmp/l2tap.stats ]; then
-        . /tmp/l2tap.stats
-        results="${results}=== L2TAP ===\nStreams: ${STREAMS:-0}/${MAX_STREAMS:-128}, Flows: ${FLOWS:-0}\n"
+    if [ -f /tmp/tap2tcp.stats ]; then
+        . /tmp/tap2tcp.stats
+        results="${results}=== Tap2TCP ===\nStreams: ${STREAMS:-0}/${MAX_STREAMS:-128}, Flows: ${FLOWS:-0}\n"
     fi
 
     local escaped=$(printf '%s' "$results" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
@@ -838,9 +838,9 @@ run_packet_storm() {
     [ -z "$bridge_ip" ] && bridge_ip="$vpn_ip"
 
     local pre_err=0 pre_drop=0
-    [ -d /sys/class/net/l2bridge/statistics ] && {
-        pre_err=$(( $(cat /sys/class/net/l2bridge/statistics/rx_errors) + $(cat /sys/class/net/l2bridge/statistics/tx_errors) ))
-        pre_drop=$(( $(cat /sys/class/net/l2bridge/statistics/rx_dropped) + $(cat /sys/class/net/l2bridge/statistics/tx_dropped) ))
+    [ -d /sys/class/net/rvr_bridge/statistics ] && {
+        pre_err=$(( $(cat /sys/class/net/rvr_bridge/statistics/rx_errors) + $(cat /sys/class/net/rvr_bridge/statistics/tx_errors) ))
+        pre_drop=$(( $(cat /sys/class/net/rvr_bridge/statistics/rx_dropped) + $(cat /sys/class/net/rvr_bridge/statistics/tx_dropped) ))
     }
 
     local results="=== Packet Storm (via bridge: $bridge_ip) ===\n"
@@ -854,16 +854,16 @@ run_packet_storm() {
     _ssh_remote "$vpn_ip" "killall iperf3 2>/dev/null"
 
     results="${results}=== Error Check ===\n"
-    [ -d /sys/class/net/l2bridge/statistics ] && {
-        local post_err=$(( $(cat /sys/class/net/l2bridge/statistics/rx_errors) + $(cat /sys/class/net/l2bridge/statistics/tx_errors) ))
-        local post_drop=$(( $(cat /sys/class/net/l2bridge/statistics/rx_dropped) + $(cat /sys/class/net/l2bridge/statistics/tx_dropped) ))
+    [ -d /sys/class/net/rvr_bridge/statistics ] && {
+        local post_err=$(( $(cat /sys/class/net/rvr_bridge/statistics/rx_errors) + $(cat /sys/class/net/rvr_bridge/statistics/tx_errors) ))
+        local post_drop=$(( $(cat /sys/class/net/rvr_bridge/statistics/rx_dropped) + $(cat /sys/class/net/rvr_bridge/statistics/tx_dropped) ))
         results="${results}New errors: $((post_err - pre_err))\n"
         results="${results}New drops: $((post_drop - pre_drop))\n"
     }
 
-    if [ -f /tmp/l2tap.stats ]; then
-        . /tmp/l2tap.stats
-        results="${results}L2TAP: ${STREAMS:-0} streams, ${FLOWS:-0} flows\n"
+    if [ -f /tmp/tap2tcp.stats ]; then
+        . /tmp/tap2tcp.stats
+        results="${results}Tap2TCP: ${STREAMS:-0} streams, ${FLOWS:-0} flows\n"
     fi
 
     local escaped=$(printf '%s' "$results" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
@@ -886,16 +886,16 @@ get_outages() {
     # Parse SNMP CSV: all KCP retransmit events are RECOVERY (amber)
     # KCPtun LostSegs = "loss detected, retransmit scheduled" — NOT permanent loss
     # KCPtun RetransSegs = "segments retransmitted" — KCP always recovers
-    # True data loss only comes from l2tap hard drops (separate stats)
+    # True data loss only comes from tap2tcp hard drops (separate stats)
     #
     # Recovery event = any retransmit activity (RetransSegs delta > 0)
-    # Loss event = l2tap hard drops (read from stats file, not SNMP)
+    # Loss event = tap2tcp hard drops (read from stats file, not SNMP)
 
-    # Get l2tap drop counters
+    # Get tap2tcp drop counters
     local hard_drops=0 seq_drops=0
-    if [ -f /tmp/l2tap.stats ]; then
-        hard_drops=$(grep "^HARD_DROPS=" /tmp/l2tap.stats 2>/dev/null | cut -d= -f2)
-        seq_drops=$(grep "^SEQ_DROPS=" /tmp/l2tap.stats 2>/dev/null | cut -d= -f2)
+    if [ -f /tmp/tap2tcp.stats ]; then
+        hard_drops=$(grep "^HARD_DROPS=" /tmp/tap2tcp.stats 2>/dev/null | cut -d= -f2)
+        seq_drops=$(grep "^SEQ_DROPS=" /tmp/tap2tcp.stats 2>/dev/null | cut -d= -f2)
     fi
     hard_drops="${hard_drops:-0}"
     seq_drops="${seq_drops:-0}"
@@ -986,7 +986,7 @@ get_kcp_stats() {
 # Return server-side stats history as JSON array with computed rates
 # Query params: window=300 (seconds, default 900 = 15min)
 get_stats_history() {
-    local stats_file="/tmp/l2bridge-stats.csv"
+    local stats_file="/tmp/rvr-stats.csv"
     local window=$(echo "$QUERY_STRING" | sed -n 's/.*window=\([0-9]*\).*/\1/p')
     window="${window:-900}"
 
@@ -1057,10 +1057,10 @@ update_link_profile() {
     local rcvwnd=$sndwnd
 
     # Save link profile
-    mkdir -p /etc/l2bridge
+    mkdir -p /etc/rvr
     printf '{"upload_mbps":%s,"download_mbps":%s,"latency_budget_ms":%s,"computed":{"sockbuf":%s,"smuxbuf":%s,"streambuf":%s,"sndwnd":%s,"rcvwnd":%s}}\n' \
         "$upload_mbps" "${download_mbps:-$upload_mbps}" "$latency_ms" \
-        "$sockbuf" "$smuxbuf" "$streambuf" "$sndwnd" "$rcvwnd" > /etc/l2bridge/link_profile.json
+        "$sockbuf" "$smuxbuf" "$streambuf" "$sndwnd" "$rcvwnd" > /etc/rvr/link_profile.json
 
     # Apply to local kcptun config
     local config="/etc/kcptun/server.json"
@@ -1076,7 +1076,7 @@ update_link_profile() {
 
     # Apply to remote peer via SSH
     local aircraft_ip=""
-    [ -f /etc/l2bridge.conf ] && . /etc/l2bridge.conf
+    [ -f /etc/rvr.conf ] && . /etc/rvr.conf
     if [ -n "$AIRCRAFT_IP" ] && [ -f "$SSH_KEY" ]; then
         _ssh_remote "$AIRCRAFT_IP" "
             for cfg in /etc/kcptun/server.json /etc/kcptun/client.json; do
@@ -1087,8 +1087,8 @@ update_link_profile() {
                 sed -i 's/\"sndwnd\":[[:space:]]*[0-9]*/\"sndwnd\": $sndwnd/' \"\$cfg\"
                 sed -i 's/\"rcvwnd\":[[:space:]]*[0-9]*/\"rcvwnd\": $rcvwnd/' \"\$cfg\"
             done
-            mkdir -p /etc/l2bridge
-            printf '{\"upload_mbps\":%s,\"download_mbps\":%s,\"latency_budget_ms\":%s}' '$upload_mbps' '${download_mbps:-$upload_mbps}' '$latency_ms' > /etc/l2bridge/link_profile.json
+            mkdir -p /etc/rvr
+            printf '{\"upload_mbps\":%s,\"download_mbps\":%s,\"latency_budget_ms\":%s}' '$upload_mbps' '${download_mbps:-$upload_mbps}' '$latency_ms' > /etc/rvr/link_profile.json
         " 2>/dev/null
     fi
 
@@ -1112,8 +1112,8 @@ update_link_profile() {
 get_link_profile() {
     echo "Content-Type: application/json"
     echo ""
-    if [ -f /etc/l2bridge/link_profile.json ]; then
-        cat /etc/l2bridge/link_profile.json
+    if [ -f /etc/rvr/link_profile.json ]; then
+        cat /etc/rvr/link_profile.json
     else
         printf '{"upload_mbps":15,"download_mbps":150,"latency_budget_ms":2000}\n'
     fi
@@ -1179,7 +1179,7 @@ update_link_settings_action() {
 
     # Also update aircraft client config if connected
     local aircraft_ip=""
-    [ -f /etc/l2bridge.conf ] && . /etc/l2bridge.conf
+    [ -f /etc/rvr.conf ] && . /etc/rvr.conf
     if [ -n "$AIRCRAFT_IP" ] && [ -f "$SSH_KEY" ]; then
         local client_config="/etc/kcptun/client.json"
         timeout 5 dbclient -i "$SSH_KEY" -y root@"$AIRCRAFT_IP" "
@@ -1216,8 +1216,8 @@ add_manual_peer() {
     [ -z "$ip" ] && json_error "IP address required"
     validate_ip "$ip" || json_error "Invalid IP format (must be 100.x.x.x)"
 
-    local peers_file="/etc/l2bridge/peers.conf"
-    mkdir -p /etc/l2bridge
+    local peers_file="/etc/rvr/peers.conf"
+    mkdir -p /etc/rvr
     # Add if not already present
     if ! grep -qx "$ip" "$peers_file" 2>/dev/null; then
         echo "$ip" >> "$peers_file"
@@ -1229,7 +1229,7 @@ add_manual_peer() {
 remove_manual_peer() {
     local ip="$1"
     [ -z "$ip" ] && json_error "IP address required"
-    local peers_file="/etc/l2bridge/peers.conf"
+    local peers_file="/etc/rvr/peers.conf"
     [ -f "$peers_file" ] && sed -i "/^${ip}$/d" "$peers_file"
     json_response "{\"success\": true, \"message\": \"Peer IP removed\"}"
 }
@@ -1238,7 +1238,7 @@ remove_manual_peer() {
 get_setup_log() {
     echo "Content-Type: application/json"
     echo ""
-    local log_file="/tmp/l2bridge-setup.log"
+    local log_file="/tmp/rvr-setup.log"
     if [ -f "$log_file" ]; then
         local log_content
         log_content=$(tail -100 "$log_file" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
@@ -1280,31 +1280,31 @@ main() {
     [ -z "$action" ] && json_error "No action specified"
 
     case "$action" in
-        # L2Bridge commands
+        # RVR commands
         setup|add)
-            run_l2bridge_command "$action" "$aircraft_ip" "$aircraft_name"
+            run_rvr_command "$action" "$aircraft_ip" "$aircraft_name"
             ;;
         start|stop|restart|debug)
-            run_l2bridge_command "$action" "$aircraft_ip"
+            run_rvr_command "$action" "$aircraft_ip"
             ;;
         status)
-            run_l2bridge_command "status" ""
+            run_rvr_command "status" ""
             ;;
         config)
-            run_l2bridge_command "config" ""
+            run_rvr_command "config" ""
             ;;
         logs)
-            run_l2bridge_command "logs" "50"
+            run_rvr_command "logs" "50"
             ;;
 
         # Capture commands
         capture_start)
             local duration=$(parse_json "duration" "$post_data")
             duration="${duration:-60}"
-            run_l2bridge_command "capture" "$duration"
+            run_rvr_command "capture" "$duration"
             ;;
         capture_stop)
-            run_l2bridge_command "capture" "stop"
+            run_rvr_command "capture" "stop"
             ;;
 
         # File management
@@ -1313,7 +1313,7 @@ main() {
             echo ""
             printf '{"files":['
             first=1
-            for f in /tmp/l2bridge-capture*.pcap /tmp/l2bridge-setup.log /tmp/l2bridge-watchdog.log; do
+            for f in /tmp/rvr-capture*.pcap /tmp/rvr-setup.log /tmp/rvr-watchdog.log; do
                 [ -f "$f" ] || continue
                 fname=$(basename "$f")
                 fsize=$(wc -c < "$f" 2>/dev/null || echo 0)
@@ -1334,7 +1334,7 @@ main() {
             [ -z "$filename" ] && filename=$(echo "$QUERY_STRING" | sed -n 's/.*file=\([^&]*\).*/\1/p')
             # Security: only allow specific files from /tmp/
             case "$filename" in
-                l2bridge-capture*.pcap|l2bridge-setup.log|l2bridge-watchdog.log)
+                rvr-capture*.pcap|rvr-setup.log|rvr-watchdog.log)
                     local filepath="/tmp/$filename"
                     if [ -f "$filepath" ]; then
                         echo "Content-Type: application/octet-stream"
@@ -1356,7 +1356,7 @@ main() {
             local filename=$(parse_json "file" "$post_data")
             # Only allow deleting capture files
             case "$filename" in
-                l2bridge-capture*.pcap)
+                rvr-capture*.pcap)
                     local filepath="/tmp/$filename"
                     if [ -f "$filepath" ]; then
                         rm -f "$filepath"
@@ -1487,22 +1487,22 @@ main() {
 
 # ── Update Management ─────────────────────────────────────────────────
 
-# Update this device (runs l2bridge update in background)
+# Update this device (runs rvr update in background)
 update_local_action() {
     local branch="$1"
-    [ -x "$L2BRIDGE" ] || json_error "l2bridge not found"
+    [ -x "$RVR_BIN" ] || json_error "rvr not found"
 
     local branch_arg=""
     [ -n "$branch" ] && branch_arg="--branch $branch"
 
-    : > /tmp/l2bridge-setup.log
+    : > /tmp/rvr-setup.log
     (
         echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..."
-        "$L2BRIDGE" update $branch_arg >> /tmp/l2bridge-setup.log 2>&1
-        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
-    ) >> /tmp/l2bridge-setup.log 2>&1 &
+        "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
+        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/rvr-setup.log
+    ) >> /tmp/rvr-setup.log 2>&1 &
 
-    json_response '{"success": true, "message": "Update started", "log_file": "/tmp/l2bridge-setup.log"}'
+    json_response '{"success": true, "message": "Update started", "log_file": "/tmp/rvr-setup.log"}'
 }
 
 # Update a remote peer via SSH
@@ -1516,27 +1516,27 @@ update_remote_action() {
     local branch_arg=""
     [ -n "$branch" ] && branch_arg="--branch $branch"
 
-    : > /tmp/l2bridge-setup.log
+    : > /tmp/rvr-setup.log
     (
         echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..."
-        _ssh_remote "$ip" "l2bridge update $branch_arg" >> /tmp/l2bridge-setup.log 2>&1
-        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
-    ) >> /tmp/l2bridge-setup.log 2>&1 &
+        _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
+        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/rvr-setup.log
+    ) >> /tmp/rvr-setup.log 2>&1 &
 
-    json_response '{"success": true, "message": "Remote update started", "log_file": "/tmp/l2bridge-setup.log"}'
+    json_response '{"success": true, "message": "Remote update started", "log_file": "/tmp/rvr-setup.log"}'
 }
 
 # Force-refresh version check (clears cache, re-fetches from GitHub)
 check_update_action() {
-    rm -f /tmp/l2bridge-latest-version
+    rm -f /tmp/rvr-latest-version
 
     local current=""
-    [ -f /etc/l2bridge/version ] && current=$(cat /etc/l2bridge/version)
+    [ -f /etc/rvr/version ] && current=$(cat /etc/rvr/version)
 
-    local branch=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+    local branch=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
 
     local latest=""
-    local repo_path=$(cat /etc/l2bridge/repo 2>/dev/null || echo "")
+    local repo_path=$(cat /etc/rvr/repo 2>/dev/null || echo "")
     if [ -z "$repo_path" ]; then
         repo_path="jack7169/RVR_v0.4"
     fi
@@ -1547,7 +1547,7 @@ check_update_action() {
         [ -n "$latest" ] && latest=$(echo "$latest" | cut -c1-7)
     fi
 
-    [ -n "$latest" ] && echo "$latest" > /tmp/l2bridge-latest-version
+    [ -n "$latest" ] && echo "$latest" > /tmp/rvr-latest-version
 
     local update_available="false"
     if [ -n "$current" ] && [ -n "$latest" ] && [ "$current" != "$latest" ]; then
@@ -1565,7 +1565,7 @@ list_branches_action() {
     fi
     [ -z "$repo_dir" ] && json_error "Git repository not found"
 
-    local current=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+    local current=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
 
     cd "$repo_dir"
     local branches=$(git ls-remote --heads origin 2>/dev/null | awk '{print substr($2, 12)}')

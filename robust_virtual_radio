@@ -1824,7 +1824,7 @@ cmd_update() {
     fi
 
     git reset --hard "origin/$branch" 2>&1 || { log_error "Failed to apply updates"; exit 1; }
-    chmod +x "$repo_dir/rvr"
+    chmod +x "$repo_dir/robust_virtual_radio"
     chmod +x "$repo_dir/www/cgi-bin/"*.cgi 2>/dev/null
 
     # Clean stale git objects to reclaim storage
@@ -1838,8 +1838,8 @@ cmd_update() {
         log_info "Updated tap2tcp binary"
     fi
 
-    if [ ! -L /usr/bin/rvr ] || [ "$(readlink -f /usr/bin/rvr)" != "$repo_dir/rvr" ]; then
-        ln -sf "$repo_dir/rvr" /usr/bin/rvr
+    if [ ! -L /usr/bin/rvr ] || [ "$(readlink -f /usr/bin/rvr)" != "$repo_dir/robust_virtual_radio" ]; then
+        ln -sf "$repo_dir/robust_virtual_radio" /usr/bin/rvr
     fi
 
     echo "  Updated: $old_hash -> $new_hash ($branch)"
@@ -1873,7 +1873,9 @@ cmd_update() {
     local AIRCRAFT_IP=$(get_aircraft_ip 2>/dev/null)
     if [ -n "$AIRCRAFT_IP" ] && pgrep tap2tcp >/dev/null 2>&1; then
         log_info "Restarting bridge to apply updates..."
-        cmd_restart "$AIRCRAFT_IP"
+        if ! cmd_restart "$AIRCRAFT_IP"; then
+            log_warn "Bridge restart failed — may need manual restart"
+        fi
     fi
 
     echo ""

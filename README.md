@@ -147,7 +147,7 @@ RVR_v0.4/
 │   ├── include/tap2tcp.h     # Constants, structs, prototypes
 │   ├── src/                # main, tap, frame, flow, stream, loop, log
 │   └── Makefile            # Host + aarch64 cross-compile
-├── rvr                # Main CLI script (~1900 lines, POSIX sh)
+├── robust_virtual_radio    # Main CLI script (~1900 lines, POSIX sh)
 ├── install.sh              # Bootstrap installer for OpenWrt
 ├── www-next/               # React UI source (built by CI)
 │   └── src/

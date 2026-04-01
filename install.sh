@@ -204,7 +204,7 @@ download_repo() {
 
     rm -rf "$INSTALL_DIR"
     mv "/tmp/$extracted" "$INSTALL_DIR"
-    chmod +x "$INSTALL_DIR/rvr"
+    chmod +x "$INSTALL_DIR/robust_virtual_radio"
     chmod +x "$INSTALL_DIR/www/cgi-bin/"*.cgi 2>/dev/null || true
 
     ok "Extracted to $INSTALL_DIR"
@@ -353,11 +353,11 @@ setup_git_repo() {
 #############################################
 install_rvr_cli() {
     info "Installing rvr to /usr/bin/..."
-    ln -sf "$INSTALL_DIR/rvr" /usr/bin/rvr
-    chmod +x "$INSTALL_DIR/rvr"
+    ln -sf "$INSTALL_DIR/robust_virtual_radio" /usr/bin/rvr
+    chmod +x "$INSTALL_DIR/robust_virtual_radio"
 
     if rvr help >/dev/null 2>&1; then
-        ok "rvr installed -> $INSTALL_DIR/rvr"
+        ok "rvr installed -> $INSTALL_DIR/robust_virtual_radio"
     else
         fail "rvr installation failed"
     fi

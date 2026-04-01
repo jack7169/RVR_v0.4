@@ -18,7 +18,7 @@ tap2tcp classifies Ethernet frames by asymmetric src+dst MAC pair. Each directio
 ## Directory Layout
 ```
 tap2tcp/              C proxy source (single-threaded epoll, static musl binary)
-rvr            Main CLI script (POSIX sh, ~2000 lines)
+robust_virtual_radio    Main CLI script (POSIX sh, ~2000 lines)
 install.sh          Bootstrap installer for OpenWrt devices
 www/                Built web UI (committed by CI, served by lighttpd :8081)
 www/cgi-bin/        CGI backend (status.cgi, api.cgi, logs.cgi)

@@ -33,6 +33,13 @@ function BindModal({
   const [output, setOutput] = useState('');
   const { toast } = useToast();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const logRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [output]);
 
   useEffect(() => {
     if (peer) {
@@ -64,7 +71,7 @@ function BindModal({
           onSuccess();
         }
       } catch { /* ignore */ }
-    }, 3000);
+    }, 1000);
   };
 
   const handleBind = async (pass?: string) => {
@@ -151,7 +158,7 @@ function BindModal({
 
         {/* Setup log output */}
         {output && (
-          <pre className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-64 overflow-y-auto whitespace-pre-wrap">
+          <pre ref={logRef} className="bg-bg-primary border border-border rounded-lg p-3 text-xs font-mono text-text-secondary max-h-64 overflow-y-auto whitespace-pre-wrap">
             {output}
           </pre>
         )}

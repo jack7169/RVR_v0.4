@@ -705,9 +705,10 @@ bind_aircraft_action() {
     echo "AIRCRAFT_IP=\"$ip\"" > /etc/l2bridge.conf
 
     # Run full setup in background
+    # l2bridge setup internally tees to /tmp/l2bridge-setup.log — don't double-redirect
     : > /tmp/l2bridge-setup.log
     (
-        "$L2BRIDGE" setup "$ip" "$name" >> /tmp/l2bridge-setup.log 2>&1
+        "$L2BRIDGE" setup "$ip" "$name"
         echo "[BIND COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
     ) &
 

@@ -1661,8 +1661,13 @@ cmd_uninstall() {
     # NOTE: Do NOT remove opkg packages (kcptun, git, kmod-tun, etc.)
     # They may be shared dependencies with GL.iNet system packages.
     # Removing them with --force-depends has bricked routers.
-    # Packages are harmless to leave installed (~17MB).
-    echo "[*] Keeping installed packages (safe uninstall)."
+    echo "[*] Keeping system packages (safe uninstall)."
+
+    # Remove pip packages (grpcio, protobuf, etc.) — these are safe to remove
+    if command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1; then
+        echo "[*] Removing Python pip packages..."
+        python3 -m pip uninstall -y grpcio grpcio-reflection protobuf yagrc typing-extensions 2>/dev/null || true
+    fi
 
     echo "[*] Removing RVR..."
     rm -f /usr/bin/rvr

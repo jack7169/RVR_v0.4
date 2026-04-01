@@ -1052,7 +1052,7 @@ get_starlink_outages() {
 
     local script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
     local grpc_tools=""
-    for d in /opt/starnav/starlink-grpc-tools /root/Starnav/starlink-grpc-tools; do
+    for d in /root/RVR_v0.4/starlink-grpc-tools /opt/starnav/starlink-grpc-tools /root/Starnav/starlink-grpc-tools; do
         [ -f "$d/starlink_grpc.py" ] && { grpc_tools="$d"; break; }
     done
 

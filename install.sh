@@ -20,7 +20,9 @@ INSTALL_DIR="/root/RVR_v0.4"
 MIN_DISK_MB=40
 
 # Package lists (no tinc — replaced by tap2tcp static binary)
-COMMON_PKGS="kcptun-config kmod-tun libopenssl3 liblzo2 zlib git git-http libcurl4"
+COMMON_PKGS="kcptun-config kmod-tun libopenssl3 liblzo2 zlib git git-http libcurl4 ca-bundle"
+PYTHON_PKGS="python3 python3-base python3-light python3-logging python3-email python3-openssl python3-ctypes python3-codecs python3-multiprocessing libpython3"
+PIP_PKGS="grpcio protobuf yagrc typing-extensions"
 GCS_PKGS="kcptun-server sshpass"
 AIRCRAFT_PKGS="kcptun-client"
 
@@ -291,6 +293,58 @@ install_packages() {
     fi
 }
 
+install_python_packages() {
+    info "Installing Python system packages..."
+
+    # Try bundled .ipk first, then feeds
+    local pkg_dir="$INSTALL_DIR/packages"
+    if [ -d "$pkg_dir/common" ] && ls "$pkg_dir/common/"*.ipk >/dev/null 2>&1; then
+        opkg install "$pkg_dir/common/"*.ipk --force-depends \
+            2>&1 | grep -vE "has no valid architecture|Configuring|already installed|Updating database" || true
+    fi
+
+    # Check if python3 works, fall back to feeds
+    if ! command -v python3 >/dev/null 2>&1; then
+        info "Python3 not found in bundles, installing from feeds..."
+        ensure_opkg_config
+        opkg update 2>&1 | grep -vE "has no valid architecture" || true
+        for pkg in $PYTHON_PKGS; do
+            opkg install "$pkg" 2>&1 | grep -vE "has no valid architecture|Configuring|already installed" || true
+        done
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 not available — Starlink panel will not work"
+        return 0
+    fi
+
+    ok "Python3 installed ($(python3 --version 2>&1 | awk '{print $2}'))"
+
+    # Bootstrap pip
+    if ! python3 -m pip --version >/dev/null 2>&1; then
+        info "Bootstrapping pip..."
+        if python3 -m ensurepip --default-pip 2>/dev/null; then
+            ok "pip bootstrapped via ensurepip"
+        else
+            info "Downloading get-pip.py..."
+            fetch "https://bootstrap.pypa.io/get-pip.py" "/tmp/get-pip.py"
+            python3 /tmp/get-pip.py --no-cache-dir 2>&1 || { warn "pip install failed"; return 0; }
+            rm -f /tmp/get-pip.py
+            ok "pip installed"
+        fi
+    fi
+
+    info "Installing Python dependencies (grpcio may take 10-30 min on ARM)..."
+    python3 -m pip install --no-cache-dir $PIP_PKGS 2>&1 || { warn "pip install failed"; return 0; }
+
+    # Verify
+    if python3 -c "import grpc; import google.protobuf; import yagrc; print('OK')" 2>/dev/null; then
+        ok "Python dependencies installed"
+    else
+        warn "Python dependency verification failed — Starlink panel may not work"
+    fi
+}
+
 #############################################
 # PHASE 3: GIT BOOTSTRAP
 #############################################
@@ -508,12 +562,14 @@ show_menu() {
         case "$choice" in
             1)
                 install_packages gcs
+                install_python_packages
                 install_rvr_cli
                 echo ""
                 ok "GCS setup complete. Use option 3 for Web UI, option 4 to configure bridge."
                 ;;
             2)
                 install_packages aircraft
+                install_python_packages
                 install_rvr_cli
                 echo ""
                 ok "Aircraft setup complete. The GCS will configure this device during bridge setup."
@@ -570,6 +626,7 @@ ensure_opkg_config
 # Non-interactive mode
 if [ -n "$ROLE" ]; then
     install_packages "$ROLE"
+    install_python_packages
     bootstrap_git
     setup_git_repo
     install_rvr_cli

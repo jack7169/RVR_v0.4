@@ -65,13 +65,6 @@ release_lock() {
     rm -f "$LOCK_FILE"
 }
 
-# Initialize aircraft config file if it doesn't exist
-init_aircraft_file() {
-    mkdir -p "$CONFIG_DIR"
-    if [ ! -f "$AIRCRAFT_FILE" ]; then
-        printf '{\n  "version": 1,\n  "active": "",\n  "profiles": {}\n}\n' > "$AIRCRAFT_FILE"
-    fi
-}
 
 # Read POST data
 read_post_data() {
@@ -124,319 +117,9 @@ run_rvr_command() {
     json_response "{\"success\": $success, \"command\": \"$cmd\", \"output\": \"$escaped_output\", \"exit_code\": $exit_code, \"duration_seconds\": $duration}"
 }
 
-# List all aircraft profiles
-list_aircraft() {
-    init_aircraft_file
-    echo "Content-Type: application/json"
-    echo ""
-    cat "$AIRCRAFT_FILE"
-}
-
-# Add new aircraft profile
-add_aircraft() {
-    local id="$1"
-    local name="$2"
-    local ip="$3"
-    local password="$4"
-
-    # Validate inputs
-    [ -z "$id" ] && json_error "Profile ID is required"
-    [ -z "$name" ] && json_error "Profile name is required"
-    [ -z "$ip" ] && json_error "Tailscale IP is required"
-    validate_id "$id" || json_error "Invalid profile ID format"
-    validate_ip "$ip" || json_error "Invalid Tailscale IP format (must be 100.x.x.x)"
-
-    init_aircraft_file
-
-    # Check if ID already exists
-    if grep -q "\"$id\":" "$AIRCRAFT_FILE"; then
-        json_error "Profile ID already exists"
-    fi
-
-    local created=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
-
-    # Get current active
-    local current_active=""
-    current_active=$(sed -n 's/.*"active":[[:space:]]*"\([^"]*\)".*/\1/p' "$AIRCRAFT_FILE" | head -1)
-
-    # Simple approach: rebuild the entire file
-    # Extract existing profiles as id|name|ip|password|created|last_used lines
-    local tmp_profiles=$(mktemp)
-    awk '
-    /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ {
-        id = $0
-        sub(/^[^"]*"/, "", id)
-        sub(/".*/, "", id)
-        if (id != "profiles") {
-            current_id = id
-            p_pass[current_id] = ""
-        }
-    }
-    current_id && /"name":/ {
-        val = $0; sub(/.*"name":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_name[current_id] = val
-    }
-    current_id && /"tailscale_ip":/ {
-        val = $0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_ip[current_id] = val
-    }
-    current_id && /"ssh_password":/ {
-        val = $0; sub(/.*"ssh_password":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_pass[current_id] = val
-    }
-    current_id && /"created":/ {
-        val = $0; sub(/.*"created":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_created[current_id] = val
-    }
-    current_id && /"last_used":/ {
-        val = $0; sub(/.*"last_used":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_last[current_id] = val
-        print current_id "|" p_name[current_id] "|" p_ip[current_id] "|" p_pass[current_id] "|" p_created[current_id] "|" p_last[current_id]
-    }
-    ' "$AIRCRAFT_FILE" > "$tmp_profiles"
-
-    # Add new profile to list (password can be empty)
-    echo "$id|$name|$ip|$password|$created|$created" >> "$tmp_profiles"
-
-    # Rebuild JSON file
-    printf '{\n  "version": 1,\n  "active": "%s",\n  "profiles": {\n' "$current_active" > "$AIRCRAFT_FILE"
-
-    local first=1
-    while IFS='|' read -r pid pname pip ppass pcreated plast; do
-        [ -z "$pid" ] && continue
-        [ $first -eq 0 ] && printf ',\n' >> "$AIRCRAFT_FILE"
-        printf '    "%s": {\n' "$pid" >> "$AIRCRAFT_FILE"
-        printf '      "name": "%s",\n' "$pname" >> "$AIRCRAFT_FILE"
-        printf '      "tailscale_ip": "%s",\n' "$pip" >> "$AIRCRAFT_FILE"
-        printf '      "ssh_password": "%s",\n' "$ppass" >> "$AIRCRAFT_FILE"
-        printf '      "created": "%s",\n' "$pcreated" >> "$AIRCRAFT_FILE"
-        printf '      "last_used": "%s"\n' "$plast" >> "$AIRCRAFT_FILE"
-        printf '    }' >> "$AIRCRAFT_FILE"
-        first=0
-    done < "$tmp_profiles"
-
-    printf '\n  }\n}\n' >> "$AIRCRAFT_FILE"
-    rm -f "$tmp_profiles"
-
-    json_response "{\"success\": true, \"message\": \"Aircraft profile added\", \"id\": \"$id\"}"
-}
-
-# Update aircraft profile
-update_aircraft() {
-    local id="$1"
-    local name="$2"
-    local ip="$3"
-    local password="$4"
-
-    [ -z "$id" ] && json_error "Profile ID is required"
-    validate_id "$id" || json_error "Invalid profile ID format"
-
-    init_aircraft_file
-
-    # Check if profile exists
-    if ! grep -q "\"$id\":" "$AIRCRAFT_FILE"; then
-        json_error "Profile not found"
-    fi
-
-    [ -n "$ip" ] && { validate_ip "$ip" || json_error "Invalid Tailscale IP format"; }
-
-    # Extract all profiles, modify the target, rebuild
-    local current_active=""
-    current_active=$(sed -n 's/.*"active":[[:space:]]*"\([^"]*\)".*/\1/p' "$AIRCRAFT_FILE" | head -1)
-
-    local tmp_profiles=$(mktemp)
-    awk '
-    /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ {
-        pid = $0
-        sub(/^[^"]*"/, "", pid)
-        sub(/".*/, "", pid)
-        if (pid != "profiles") {
-            current_id = pid
-            p_pass[current_id] = ""
-        }
-    }
-    current_id && /"name":/ {
-        val = $0; sub(/.*"name":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_name[current_id] = val
-    }
-    current_id && /"tailscale_ip":/ {
-        val = $0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_ip[current_id] = val
-    }
-    current_id && /"ssh_password":/ {
-        val = $0; sub(/.*"ssh_password":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_pass[current_id] = val
-    }
-    current_id && /"created":/ {
-        val = $0; sub(/.*"created":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_created[current_id] = val
-    }
-    current_id && /"last_used":/ {
-        val = $0; sub(/.*"last_used":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_last[current_id] = val
-        print current_id "|" p_name[current_id] "|" p_ip[current_id] "|" p_pass[current_id] "|" p_created[current_id] "|" p_last[current_id]
-    }
-    ' "$AIRCRAFT_FILE" > "$tmp_profiles"
-
-    # Apply updates to the target profile in the extracted data
-    local tmp_updated=$(mktemp)
-    while IFS='|' read -r pid pname pip ppass pcreated plast; do
-        [ -z "$pid" ] && continue
-        if [ "$pid" = "$id" ]; then
-            [ -n "$name" ] && pname="$name"
-            [ -n "$ip" ] && pip="$ip"
-            if [ -n "$password" ]; then
-                if [ "$password" = "__CLEAR__" ]; then
-                    ppass=""
-                else
-                    ppass="$password"
-                fi
-            fi
-        fi
-        echo "$pid|$pname|$pip|$ppass|$pcreated|$plast"
-    done < "$tmp_profiles" > "$tmp_updated"
-
-    # Rebuild JSON file
-    printf '{\n  "version": 1,\n  "active": "%s",\n  "profiles": {\n' "$current_active" > "$AIRCRAFT_FILE"
-
-    local first=1
-    while IFS='|' read -r pid pname pip ppass pcreated plast; do
-        [ -z "$pid" ] && continue
-        [ $first -eq 0 ] && printf ',\n' >> "$AIRCRAFT_FILE"
-        printf '    "%s": {\n' "$pid" >> "$AIRCRAFT_FILE"
-        printf '      "name": "%s",\n' "$pname" >> "$AIRCRAFT_FILE"
-        printf '      "tailscale_ip": "%s",\n' "$pip" >> "$AIRCRAFT_FILE"
-        printf '      "ssh_password": "%s",\n' "$ppass" >> "$AIRCRAFT_FILE"
-        printf '      "created": "%s",\n' "$pcreated" >> "$AIRCRAFT_FILE"
-        printf '      "last_used": "%s"\n' "$plast" >> "$AIRCRAFT_FILE"
-        printf '    }' >> "$AIRCRAFT_FILE"
-        first=0
-    done < "$tmp_updated"
-
-    printf '\n  }\n}\n' >> "$AIRCRAFT_FILE"
-    rm -f "$tmp_profiles" "$tmp_updated"
-
-    json_response "{\"success\": true, \"message\": \"Aircraft profile updated\"}"
-}
-
-# Delete aircraft profile
-delete_aircraft() {
-    local id="$1"
-
-    [ -z "$id" ] && json_error "Profile ID is required"
-    validate_id "$id" || json_error "Invalid profile ID format"
-
-    init_aircraft_file
-
-    # Check if profile exists
-    if ! grep -q "\"$id\":" "$AIRCRAFT_FILE"; then
-        json_error "Profile not found"
-    fi
-
-    # Get current active, clear if it's the one being deleted
-    local current_active=""
-    current_active=$(sed -n 's/.*"active":[[:space:]]*"\([^"]*\)".*/\1/p' "$AIRCRAFT_FILE" | head -1)
-    [ "$current_active" = "$id" ] && current_active=""
-
-    # Extract all profiles except the one being deleted
-    local tmp_profiles=$(mktemp)
-    awk -v delete_id="$id" '
-    /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ {
-        id = $0
-        sub(/^[^"]*"/, "", id)
-        sub(/".*/, "", id)
-        if (id != "profiles") {
-            current_id = id
-            p_pass[current_id] = ""
-        }
-    }
-    current_id && /"name":/ {
-        val = $0; sub(/.*"name":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_name[current_id] = val
-    }
-    current_id && /"tailscale_ip":/ {
-        val = $0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_ip[current_id] = val
-    }
-    current_id && /"ssh_password":/ {
-        val = $0; sub(/.*"ssh_password":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_pass[current_id] = val
-    }
-    current_id && /"created":/ {
-        val = $0; sub(/.*"created":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_created[current_id] = val
-    }
-    current_id && /"last_used":/ {
-        val = $0; sub(/.*"last_used":[[:space:]]*"/, "", val); sub(/".*/, "", val)
-        p_last[current_id] = val
-        if (current_id != delete_id) {
-            print current_id "|" p_name[current_id] "|" p_ip[current_id] "|" p_pass[current_id] "|" p_created[current_id] "|" p_last[current_id]
-        }
-    }
-    ' "$AIRCRAFT_FILE" > "$tmp_profiles"
-
-    # Rebuild JSON file
-    printf '{\n  "version": 1,\n  "active": "%s",\n  "profiles": {\n' "$current_active" > "$AIRCRAFT_FILE"
-
-    local first=1
-    while IFS='|' read -r pid pname pip ppass pcreated plast; do
-        [ -z "$pid" ] && continue
-        [ $first -eq 0 ] && printf ',\n' >> "$AIRCRAFT_FILE"
-        printf '    "%s": {\n' "$pid" >> "$AIRCRAFT_FILE"
-        printf '      "name": "%s",\n' "$pname" >> "$AIRCRAFT_FILE"
-        printf '      "tailscale_ip": "%s",\n' "$pip" >> "$AIRCRAFT_FILE"
-        printf '      "ssh_password": "%s",\n' "$ppass" >> "$AIRCRAFT_FILE"
-        printf '      "created": "%s",\n' "$pcreated" >> "$AIRCRAFT_FILE"
-        printf '      "last_used": "%s"\n' "$plast" >> "$AIRCRAFT_FILE"
-        printf '    }' >> "$AIRCRAFT_FILE"
-        first=0
-    done < "$tmp_profiles"
-
-    printf '\n  }\n}\n' >> "$AIRCRAFT_FILE"
-    rm -f "$tmp_profiles"
-
-    json_response "{\"success\": true, \"message\": \"Aircraft profile deleted\"}"
-}
-
-# Set active aircraft
-set_active_aircraft() {
-    local id="$1"
-
-    [ -z "$id" ] && json_error "Profile ID is required"
-    validate_id "$id" || json_error "Invalid profile ID format"
-
-    init_aircraft_file
-
-    # Verify profile exists
-    if ! grep -q "\"$id\"" "$AIRCRAFT_FILE"; then
-        json_error "Profile not found"
-    fi
-
-    # Update active field
-    sed -i "s/\"active\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"active\": \"$id\"/" "$AIRCRAFT_FILE"
-
-    # Get the IP for this profile and update legacy config
-    local ip=""
-    if command -v jsonfilter >/dev/null 2>&1; then
-        ip=$(jsonfilter -i "$AIRCRAFT_FILE" -e "@.profiles[\"$id\"].tailscale_ip" 2>/dev/null)
-    else
-        # Fallback parsing
-        ip=$(awk -v id="$id" '
-            /"'"$id"'"/ { found=1 }
-            found && /"tailscale_ip"/ { gsub(/.*"tailscale_ip"[[:space:]]*:[[:space:]]*"/, ""); gsub(/".*/, ""); print; exit }
-        ' "$AIRCRAFT_FILE")
-    fi
-
-    # Update legacy state file for compatibility with rvr script
-    if [ -n "$ip" ]; then
-        echo "AIRCRAFT_IP=\"$ip\"" > /etc/rvr.conf
-    fi
-
-    # Update last_used timestamp
-    local now=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
-
-    json_response "{\"success\": true, \"message\": \"Active aircraft set to $id\", \"tailscale_ip\": \"$ip\"}"
-}
+# Profile management functions removed — now delegated to CLI via:
+#   rvr profile list|add|update|delete|set-active
+# See robust_virtual_radio cmd_profile() for single source of truth.
 
 # ── Binding Management ──────────────────────────────────────────────
 
@@ -537,7 +220,7 @@ run_discovery_scan() {
     # Clean up lock, timeout, and temp files on exit
     trap "kill $scan_timeout_pid 2>/dev/null; rm -f '$DISCOVERY_LOCK' /tmp/rvr-disc-peers.$$ /tmp/rvr-disc-results.$$" EXIT
 
-    init_aircraft_file
+    [ -f "$AIRCRAFT_FILE" ] || "$RVR_BIN" profile list > /dev/null 2>&1
 
     # Build bound IP lookup
     local bound_data=""
@@ -698,11 +381,9 @@ bind_aircraft_action() {
         return
     fi
 
-    # Save profile (with password if provided)
-    init_aircraft_file
-    add_aircraft "$id" "$name" "$ip" "$password" > /dev/null 2>&1
-    sed -i "s/\"active\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"active\": \"$id\"/" "$AIRCRAFT_FILE"
-    echo "AIRCRAFT_IP=\"$ip\"" > /etc/rvr.conf
+    # Save profile via CLI (single source of truth)
+    "$RVR_BIN" profile add "$id" "$name" "$ip" "$password" > /dev/null 2>&1
+    "$RVR_BIN" profile set-active "$id" > /dev/null 2>&1
 
     # Run full setup in background
     # rvr setup internally tees to /tmp/rvr-setup.log — don't double-redirect
@@ -720,20 +401,8 @@ unbind_aircraft_action() {
     local id="$1"
     [ -z "$id" ] && json_error "Profile ID is required"
 
-    # Get IP for this profile
-    local ip=""
-    ip=$(awk -v id="$id" '
-        /"'"$id"'"/ { found=1 }
-        found && /"tailscale_ip"/ { gsub(/.*"tailscale_ip":[[:space:]]*"/, ""); gsub(/".*/, ""); print; exit }
-    ' "$AIRCRAFT_FILE" 2>/dev/null)
-
-    # Stop services and clean up
-    if [ -n "$ip" ]; then
-        "$RVR_BIN" stop "$ip" > /dev/null 2>&1 || true
-    fi
-
-    # Delete profile
-    delete_aircraft "$id" > /dev/null 2>&1
+    # Delegate to CLI — handles stop, aircraft cleanup, profile deletion
+    "$RVR_BIN" unbind "$id" > /dev/null 2>&1 || true
 
     json_response "{\"success\": true, \"message\": \"Aircraft unbound\"}"
 }
@@ -766,7 +435,7 @@ connect_aircraft_action() {
 # Helper: SSH to remote peer
 _ssh_remote() {
     local ip="$1"; shift
-    dbclient -i "$SSH_KEY" -y root@"$ip" "$@" 2>/dev/null
+    timeout 120 dbclient -i "$SSH_KEY" -y root@"$ip" "$@" 2>/dev/null
 }
 
 # Get remote peer's br-lan IP (for bridge-path testing)
@@ -1407,31 +1076,50 @@ main() {
             esac
             ;;
 
-        # Aircraft profile management
+        # Aircraft profile management — delegates to CLI (single source of truth)
         list_aircraft)
-            list_aircraft
+            echo "Content-Type: application/json"
+            echo ""
+            "$RVR_BIN" profile list 2>/dev/null || printf '{"version":1,"active":"","profiles":{}}\n'
+            exit 0
             ;;
         add_aircraft)
             local id=$(parse_json "id" "$post_data")
             local name=$(parse_json "name" "$post_data")
             local ip=$(parse_json "tailscale_ip" "$post_data")
             local password=$(parse_json "ssh_password" "$post_data")
-            add_aircraft "$id" "$name" "$ip" "$password"
+            echo "Content-Type: application/json"
+            echo ""
+            "$RVR_BIN" profile add "$id" "$name" "$ip" "$password" 2>/dev/null || printf '{"success":false,"error":"add failed"}\n'
+            exit 0
             ;;
         update_aircraft)
             local id=$(parse_json "id" "$post_data")
             local name=$(parse_json "name" "$post_data")
             local ip=$(parse_json "tailscale_ip" "$post_data")
             local password=$(parse_json "ssh_password" "$post_data")
-            update_aircraft "$id" "$name" "$ip" "$password"
+            local args="$id"
+            [ -n "$name" ] && args="$args --name $name"
+            [ -n "$ip" ] && args="$args --ip $ip"
+            [ -n "$password" ] && args="$args --password $password"
+            echo "Content-Type: application/json"
+            echo ""
+            "$RVR_BIN" profile update $args 2>/dev/null || printf '{"success":false,"error":"update failed"}\n'
+            exit 0
             ;;
         delete_aircraft)
             local id=$(parse_json "id" "$post_data")
-            delete_aircraft "$id"
+            echo "Content-Type: application/json"
+            echo ""
+            "$RVR_BIN" profile delete "$id" 2>/dev/null || printf '{"success":false,"error":"delete failed"}\n'
+            exit 0
             ;;
         set_active)
             local id=$(parse_json "id" "$post_data")
-            set_active_aircraft "$id"
+            echo "Content-Type: application/json"
+            echo ""
+            "$RVR_BIN" profile set-active "$id" 2>/dev/null || printf '{"success":false,"error":"set-active failed"}\n'
+            exit 0
             ;;
 
         # Binding management

@@ -1504,6 +1504,175 @@ cmd_config() {
     [ -f "$STATE_FILE" ] && { . "$STATE_FILE"; echo "Aircraft:    $AIRCRAFT_IP"; }
 }
 
+#############################################
+# PROFILE MANAGEMENT
+# Single source of truth — api.cgi delegates here
+#############################################
+cmd_profile() {
+    local subcmd="$1"; shift 2>/dev/null || true
+    local aircraft_file="/etc/rvr/aircraft.json"
+
+    case "$subcmd" in
+        list)
+            mkdir -p /etc/rvr
+            [ -f "$aircraft_file" ] || printf '{\n  "version": 1,\n  "active": "",\n  "profiles": {}\n}\n' > "$aircraft_file"
+            cat "$aircraft_file"
+            ;;
+        add)
+            local id="$1" name="$2" ip="$3" password="${4:-}"
+            [ -z "$id" ] || [ -z "$name" ] || [ -z "$ip" ] && { echo "Usage: rvr profile add <id> <name> <ip> [password]"; exit 1; }
+            save_aircraft_profile "$name" "$ip"
+            # Update password if provided
+            if [ -n "$password" ] && [ -f "$aircraft_file" ]; then
+                local safe_pass=$(printf '%s' "$password" | sed 's/[&/\]/\\&/g')
+                # Find the profile and update password
+                awk -v id="$id" -v pass="$safe_pass" '
+                    /"'"$id"'"/ { found=1 }
+                    found && /"ssh_password":/ {
+                        sub(/"ssh_password":[[:space:]]*"[^"]*"/, "\"ssh_password\": \"" pass "\"")
+                        found=0
+                    }
+                    { print }
+                ' "$aircraft_file" > "${aircraft_file}.tmp" && mv "${aircraft_file}.tmp" "$aircraft_file"
+            fi
+            echo "{\"success\": true, \"id\": \"$id\"}"
+            ;;
+        update)
+            local id="$1"; shift 2>/dev/null || true
+            [ -z "$id" ] && { echo "Usage: rvr profile update <id> [--name X] [--ip X] [--password X]"; exit 1; }
+            [ -f "$aircraft_file" ] || { echo "ERROR: No profiles"; exit 1; }
+            local new_name="" new_ip="" new_pass=""
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    --name) new_name="$2"; shift 2 ;;
+                    --ip) new_ip="$2"; shift 2 ;;
+                    --password) new_pass="$2"; shift 2 ;;
+                    *) shift ;;
+                esac
+            done
+            # Update fields via sed
+            if [ -n "$new_name" ]; then
+                awk -v id="$id" -v val="$new_name" 'BEGIN{f=0} /"'"$id"'"/{f=1} f&&/"name":/{sub(/"name":[[:space:]]*"[^"]*"/,"\"name\": \""val"\"");f=0} {print}' "$aircraft_file" > "${aircraft_file}.tmp" && mv "${aircraft_file}.tmp" "$aircraft_file"
+            fi
+            if [ -n "$new_ip" ]; then
+                awk -v id="$id" -v val="$new_ip" 'BEGIN{f=0} /"'"$id"'"/{f=1} f&&/"tailscale_ip":/{sub(/"tailscale_ip":[[:space:]]*"[^"]*"/,"\"tailscale_ip\": \""val"\"");f=0} {print}' "$aircraft_file" > "${aircraft_file}.tmp" && mv "${aircraft_file}.tmp" "$aircraft_file"
+            fi
+            if [ -n "$new_pass" ]; then
+                awk -v id="$id" -v val="$new_pass" 'BEGIN{f=0} /"'"$id"'"/{f=1} f&&/"ssh_password":/{sub(/"ssh_password":[[:space:]]*"[^"]*"/,"\"ssh_password\": \""val"\"");f=0} {print}' "$aircraft_file" > "${aircraft_file}.tmp" && mv "${aircraft_file}.tmp" "$aircraft_file"
+            fi
+            echo "{\"success\": true}"
+            ;;
+        delete)
+            local id="$1"
+            [ -z "$id" ] && { echo "Usage: rvr profile delete <id>"; exit 1; }
+            [ -f "$aircraft_file" ] || { echo "ERROR: No profiles"; exit 1; }
+            # Extract all profiles except the one to delete, rebuild JSON
+            local tmp_profiles=$(mktemp)
+            awk '
+            /"[a-zA-Z0-9_-]+":[[:space:]]*\{/ {
+                pid = $0; sub(/^[^"]*"/, "", pid); sub(/".*/, "", pid)
+                if (pid != "profiles") current_id = pid
+            }
+            current_id && /"name":/ { val=$0; sub(/.*"name":[[:space:]]*"/, "", val); sub(/".*/, "", val); p_name[current_id]=val }
+            current_id && /"tailscale_ip":/ { val=$0; sub(/.*"tailscale_ip":[[:space:]]*"/, "", val); sub(/".*/, "", val); p_ip[current_id]=val }
+            current_id && /"ssh_password":/ { val=$0; sub(/.*"ssh_password":[[:space:]]*"/, "", val); sub(/".*/, "", val); p_pass[current_id]=val }
+            current_id && /"created":/ { val=$0; sub(/.*"created":[[:space:]]*"/, "", val); sub(/".*/, "", val); p_created[current_id]=val }
+            current_id && /"last_used":/ {
+                val=$0; sub(/.*"last_used":[[:space:]]*"/, "", val); sub(/".*/, "", val)
+                p_last[current_id]=val
+                if (current_id != id) print current_id "|" p_name[current_id] "|" p_ip[current_id] "|" p_pass[current_id] "|" p_created[current_id] "|" p_last[current_id]
+            }
+            ' id="$id" "$aircraft_file" > "$tmp_profiles"
+
+            local active=$(sed -n 's/.*"active"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$aircraft_file" | head -1)
+            [ "$active" = "$id" ] && active=""
+
+            printf '{\n  "version": 1,\n  "active": "%s",\n  "profiles": {\n' "$active" > "$aircraft_file"
+            local first=1
+            while IFS='|' read -r pid pname pip ppass pcreated plast; do
+                [ -z "$pid" ] && continue
+                [ $first -eq 0 ] && printf ',\n' >> "$aircraft_file"
+                printf '    "%s": {\n      "name": "%s",\n      "tailscale_ip": "%s",\n      "ssh_password": "%s",\n      "created": "%s",\n      "last_used": "%s"\n    }' \
+                    "$pid" "$pname" "$pip" "$ppass" "$pcreated" "$plast" >> "$aircraft_file"
+                first=0
+            done < "$tmp_profiles"
+            printf '\n  }\n}\n' >> "$aircraft_file"
+            rm -f "$tmp_profiles"
+
+            # Clear state file if this was the active aircraft
+            if [ -f "$STATE_FILE" ]; then
+                . "$STATE_FILE"
+                local current_ip
+                current_ip=$(awk -v id="$id" '/"'"$id"'"/{f=1} f&&/"tailscale_ip":/{gsub(/.*"tailscale_ip":[[:space:]]*"/,"");gsub(/".*/,"");print;exit}' "$aircraft_file" 2>/dev/null)
+                [ "${AIRCRAFT_IP:-}" = "$current_ip" ] && rm -f "$STATE_FILE"
+            fi
+            echo "{\"success\": true}"
+            ;;
+        set-active)
+            local id="$1"
+            [ -z "$id" ] && { echo "Usage: rvr profile set-active <id>"; exit 1; }
+            [ -f "$aircraft_file" ] || { echo "ERROR: No profiles"; exit 1; }
+            sed -i "s/\"active\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"active\": \"$id\"/" "$aircraft_file"
+            # Also update /etc/rvr.conf state file
+            local ip=$(awk -v id="$id" '/"'"$id"'"/{f=1} f&&/"tailscale_ip":/{gsub(/.*"tailscale_ip":[[:space:]]*"/,"");gsub(/".*/,"");print;exit}' "$aircraft_file")
+            [ -n "$ip" ] && echo "AIRCRAFT_IP=\"$ip\"" > "$STATE_FILE"
+            echo "{\"success\": true}"
+            ;;
+        *)
+            echo "Usage: rvr profile <list|add|update|delete|set-active> [args]"
+            exit 1
+            ;;
+    esac
+}
+
+# Unbind aircraft — stop services, clean up aircraft, delete profile
+# Used by WebUI unbind action (delegates here instead of reimplementing)
+cmd_unbind() {
+    local input="$1"
+    [ -z "$input" ] && { echo "Usage: rvr unbind <name|ip|id>"; exit 1; }
+    local AIRCRAFT_IP=$(get_aircraft_ip "$input")
+
+    echo "[*] Stopping bridge services..."
+    stop_local_services
+    [ -n "$AIRCRAFT_IP" ] && stop_aircraft_services "$AIRCRAFT_IP" 2>/dev/null || true
+
+    # Clean up aircraft config if reachable
+    if [ -n "$AIRCRAFT_IP" ] && check_aircraft_reachable "$AIRCRAFT_IP" 2>/dev/null; then
+        echo "[*] Cleaning up aircraft ($AIRCRAFT_IP)..."
+        ssh_aircraft "$AIRCRAFT_IP" '
+            /etc/init.d/kcptun-client stop 2>/dev/null || true
+            /etc/init.d/tap2tcp stop 2>/dev/null || true
+            [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
+            /etc/init.d/kcptun-client disable 2>/dev/null || true
+            /etc/init.d/tap2tcp disable 2>/dev/null || true
+            rm -f /etc/init.d/kcptun-client /etc/init.d/tap2tcp
+            rm -rf /etc/rvr
+            rm -f /etc/kcptun/client.json
+            rmdir /etc/kcptun 2>/dev/null || true
+            rm -f /usr/bin/tap2tcp
+            ip link set br-lan type bridge stp_state 0 2>/dev/null || true
+            rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
+        ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
+    fi
+
+    # Delete the profile
+    local profile_id="$input"
+    # If input was an IP, resolve to profile ID
+    if echo "$input" | grep -qE '^100\.'; then
+        profile_id=$(awk -v ip="$input" '
+            /"[a-zA-Z0-9_-]+"[[:space:]]*:[[:space:]]*\{/ {
+                id=$0; sub(/^[^"]*"/, "", id); sub(/".*/, "", id)
+                if (id != "profiles") current_id=id
+            }
+            current_id && /"tailscale_ip"/ && index($0, ip) { print current_id; exit }
+        ' /etc/rvr/aircraft.json 2>/dev/null)
+    fi
+    [ -n "$profile_id" ] && cmd_profile delete "$profile_id" > /dev/null 2>&1
+
+    rm -f "$STATE_FILE"
+    echo "{\"success\": true}"
+}
+
 cmd_remove_aircraft() {
     local input="$1"
     [ -z "$input" ] && { echo "Usage: rvr remove-aircraft <name|ip>"; exit 1; }
@@ -2210,6 +2379,8 @@ case "$CMD" in
     capture|cap) cmd_capture "$@" ;;
     update) cmd_update "$@" ;;
     branches) cmd_branches ;;
+    profile|prof) cmd_profile "$@" ;;
+    unbind) cmd_unbind "$@" ;;
     remove-aircraft) cmd_remove_aircraft "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
     help|-h|--help) print_usage ;;

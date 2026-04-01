@@ -1660,16 +1660,35 @@ cmd_uninstall() {
         echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"
     fi
 
-    # NOTE: Do NOT remove opkg packages (kcptun, git, kmod-tun, etc.)
-    # They may be shared dependencies with GL.iNet system packages.
-    # Removing them with --force-depends has bricked routers.
-    echo "[*] Keeping system packages (safe uninstall)."
-
-    # Remove pip packages (grpcio, protobuf, etc.) — these are safe to remove
+    # Remove pip packages first (before removing python3)
     if command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1; then
         echo "[*] Removing Python pip packages..."
-        python3 -m pip uninstall -y grpcio grpcio-reflection protobuf yagrc typing-extensions 2>/dev/null || true
+        python3 -m pip uninstall -y grpcio grpcio-reflection protobuf yagrc typing-extensions pip setuptools wheel 2>/dev/null || true
     fi
+
+    # Remove opkg packages we installed.
+    # CRITICAL safety rules:
+    #   - NEVER use --force-depends (breaks shared system libs)
+    #   - NEVER remove: libopenssl3, libcurl4, zlib, ca-bundle, liblzo2
+    #     (dozens of GL.iNet system packages depend on these)
+    #   - NEVER remove: kmod-tun (tailscale, openvpn, zerotier depend on it)
+    #   - Only remove packages with no system reverse dependencies
+    echo "[*] Removing installed packages..."
+    # Remove in dependency order (dependents first)
+    for pkg in \
+        sshpass \
+        kcptun-server kcptun-client kcptun-config \
+        git-http git \
+        python3 python3-base python3-light python3-asyncio python3-email \
+        python3-cgi python3-pydoc python3-cgitb python3-codecs python3-ctypes \
+        python3-dbm python3-decimal python3-distutils python3-logging \
+        python3-lzma python3-multiprocessing python3-ncurses python3-openssl \
+        python3-readline python3-sqlite3 python3-unittest python3-urllib \
+        python3-uuid python3-xml \
+        libpython3-3.11 libffi libgdbm \
+    ; do
+        opkg remove "$pkg" 2>/dev/null || true
+    done
 
     echo "[*] Removing RVR..."
     rm -f /usr/bin/rvr

@@ -913,6 +913,37 @@ cmd_setup() {
     check_aircraft_reachable "$AIRCRAFT_IP" || { echo "ERROR: Cannot reach aircraft"; exit 1; }
     echo "    Aircraft reachable."
 
+    # Version compatibility check
+    echo "[*] Checking aircraft version..."
+    local aircraft_ver=$(ssh_aircraft "$AIRCRAFT_IP" "cat /etc/rvr/version 2>/dev/null || cat /etc/l2bridge/version 2>/dev/null || echo 'none'" 2>/dev/null | tr -d '[:space:]')
+    local gcs_ver=$(cat /etc/rvr/version 2>/dev/null || echo 'none')
+
+    # Detect pre-rename install (has /etc/l2bridge but no /etc/rvr)
+    local aircraft_has_old=$(ssh_aircraft "$AIRCRAFT_IP" "[ -d /etc/l2bridge ] && [ ! -d /etc/rvr ] && echo 'yes' || echo 'no'" 2>/dev/null | tr -d '[:space:]')
+    if [ "$aircraft_has_old" = "yes" ]; then
+        echo "    Aircraft has incompatible pre-v0.4 install (l2bridge)."
+        echo "    Cleaning old install before proceeding..."
+        ssh_aircraft "$AIRCRAFT_IP" '
+            # Stop old services
+            [ -f /etc/init.d/l2tap ] && /etc/init.d/l2tap stop 2>/dev/null
+            [ -f /etc/init.d/l2tap ] && /etc/init.d/l2tap disable 2>/dev/null
+            rm -f /etc/init.d/l2tap
+            # Clean old config
+            rm -rf /etc/l2bridge
+            rm -f /etc/l2bridge.conf
+            rm -f /usr/bin/l2tap /usr/bin/l2bridge
+            rm -f /tmp/l2bridge* /tmp/l2tap*
+            echo "    Old install cleaned."
+        ' 2>/dev/null
+    fi
+
+    if [ "$aircraft_ver" != "none" ] && [ "$gcs_ver" != "none" ] && [ "$aircraft_ver" != "$gcs_ver" ]; then
+        echo "    Version mismatch: GCS=$gcs_ver Aircraft=$aircraft_ver"
+        echo "    Aircraft will be updated during setup."
+    else
+        echo "    Aircraft version: $aircraft_ver"
+    fi
+
     # Get password from existing profile
     local aircraft_password=""
     if [ -f "/etc/rvr/aircraft.json" ]; then

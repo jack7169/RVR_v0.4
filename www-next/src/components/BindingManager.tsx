@@ -65,10 +65,10 @@ function BindModal({
           setRunning(false);
           if (data.log.includes('exit_code=0')) {
             toast('Aircraft bound successfully!', 'success');
+            onSuccess();
           } else {
-            toast('Setup finished with errors', 'error');
+            toast('Setup finished with errors — check log output', 'error');
           }
-          onSuccess();
         }
       } catch { /* ignore */ }
     }, 1000);

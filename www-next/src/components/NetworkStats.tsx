@@ -1,12 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 import { ArrowDown, ArrowUp, Activity, AlertTriangle } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
-import { fetchStatsHistory } from '../api/client';
-import { useNetHistory, type DataPoint } from '../hooks/useNetHistory';
+import { useNetHistory } from '../hooks/useNetHistory';
 import { formatBytes, formatRate, formatPackets } from '../lib/utils';
 import { cn } from '../lib/utils';
 
@@ -50,37 +49,13 @@ function formatChartRate(value: number): string {
 
 export function NetworkStats({ status }: Props) {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
-  const [allHistory, setAllHistory] = useState<DataPoint[]>([]);
-  const fetchedRef = useRef(false);
-  const { getWindow, current, count: liveCount } = useNetHistory(status);
+  const { getWindow, current, revision } = useNetHistory(status);
   const { rvr_bridge, tailscale } = status.network_stats;
   const { bridge_filter } = status;
 
-  // Fetch full 6h server history ONCE on mount, then slice client-side
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    fetchStatsHistory(21600).then(res => {
-      setAllHistory(res.points.map(p => {
-        const d = new Date(p.t);
-        return {
-          time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-          t: p.t, rx: p.rx, tx: p.tx, pkts: p.pkts,
-        };
-      }));
-    }).catch(() => {});
-  }, []);
-
-  // Always merge server history + client data
-  // liveCount triggers re-render when new client data arrives
-  void liveCount;
-  const clientData = getWindow(timeWindow);
-  const cutoff = Date.now() - timeWindow * 1000;
-  const serverSlice = allHistory.filter(p => p.t >= cutoff);
-  // Append client data newer than the latest server point
-  const serverEnd = serverSlice.length > 0 ? serverSlice[serverSlice.length - 1].t : 0;
-  const newClientData = clientData.filter(p => p.t > serverEnd);
-  const data = [...serverSlice, ...newClientData];
+  // revision triggers re-render when new data arrives (server seed or live)
+  void revision;
+  const data = getWindow(timeWindow);
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

@@ -1,5 +1,6 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import type { StatusResponse } from '../api/types';
+import { fetchStatsHistory } from '../api/client';
 
 export interface DataPoint {
   time: string;
@@ -9,16 +10,44 @@ export interface DataPoint {
   pkts: number;
 }
 
-const MAX_POINTS = 180;
+const MAX_POINTS = 7200; // 6h at ~3s intervals
+
+function formatTime(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
 
 export function useNetHistory(status: StatusResponse | null) {
   const historyRef = useRef<DataPoint[]>([]);
   const prevRef = useRef<{
     t: number; rx: number; tx: number; pkts: number;
   } | null>(null);
-  const counterRef = useRef(0); // increments on each push to trigger re-renders
+  const [revision, setRevision] = useState(0);
+  const seededRef = useRef(false);
 
-  // Push new data point via useEffect (not useMemo — side effects belong here)
+  // Seed with server history once on mount
+  useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
+    fetchStatsHistory(21600).then(res => {
+      if (res.points.length > 0) {
+        const serverPoints: DataPoint[] = res.points.map(p => ({
+          time: formatTime(p.t),
+          t: p.t,
+          rx: p.rx,
+          tx: p.tx,
+          pkts: p.pkts,
+        }));
+        // Prepend server data before any live data already collected
+        const liveStart = historyRef.current.length > 0 ? historyRef.current[0].t : Infinity;
+        const older = serverPoints.filter(p => p.t < liveStart);
+        historyRef.current = [...older, ...historyRef.current].slice(-MAX_POINTS);
+        setRevision(r => r + 1);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Append live data points from status polls
   useEffect(() => {
     if (!status) return;
     const now = status.network_stats.timestamp_ms;
@@ -29,10 +58,9 @@ export function useNetHistory(status: StatusResponse | null) {
     const prev = prevRef.current;
     if (prev && now > prev.t) {
       const dt = (now - prev.t) / 1000;
-      if (dt > 0 && dt < 30) { // sanity: skip if gap > 30s (stale data)
-        const d = new Date(now);
+      if (dt > 0 && dt < 30) {
         historyRef.current.push({
-          time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`,
+          time: formatTime(now),
           t: now,
           rx: Math.max(0, (rx - prev.rx) / dt),
           tx: Math.max(0, (tx - prev.tx) / dt),
@@ -41,7 +69,7 @@ export function useNetHistory(status: StatusResponse | null) {
         if (historyRef.current.length > MAX_POINTS) {
           historyRef.current = historyRef.current.slice(-MAX_POINTS);
         }
-        counterRef.current++;
+        setRevision(r => r + 1);
       }
     }
     prevRef.current = { t: now, rx, tx, pkts };
@@ -60,5 +88,5 @@ export function useNetHistory(status: StatusResponse | null) {
     return h[h.length - 1];
   })();
 
-  return { getWindow, current, count: counterRef.current };
+  return { getWindow, current, revision };
 }

@@ -682,7 +682,7 @@ bind_aircraft_action() {
     fi
 
     # Generate profile ID
-    local id=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+    local id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
 
     # Check if SSH key auth already works (no password needed)
@@ -1241,7 +1241,7 @@ get_setup_log() {
     local log_file="/tmp/rvr-setup.log"
     if [ -f "$log_file" ]; then
         local log_content
-        log_content=$(tail -100 "$log_file" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
+        log_content=$(cat "$log_file" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
         printf '{"log":"%s"}\n' "$log_content"
     else
         printf '{"log":""}\n'

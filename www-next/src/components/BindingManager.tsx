@@ -669,7 +669,7 @@ export function BindingManager({ onRefresh }: Props) {
 
         {/* Peer grid (includes self, formatted consistently) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {discovery?.self && (
+          {discovery?.self && discovery.self.hostname !== 'scanning...' && (
             <PeerCard peer={discovery.self} selfVersion={discovery.self.git_version} selfBranch={discovery.self.git_branch} onBind={() => {}} onReconnect={() => {}} />
           )}
           {filteredPeers.map(peer => (
@@ -688,7 +688,9 @@ export function BindingManager({ onRefresh }: Props) {
 
         {filteredPeers.length === 0 && (
           <p className="text-sm text-text-secondary text-center py-6">
-            {filter === 'all'
+            {discovery?.self.hostname === 'scanning...'
+              ? 'Scanning network for peers...'
+              : filter === 'all'
               ? 'No VPN peers found. Check that Tailscale/WireGuard is running.'
               : filter === 'online'
               ? `No peers online. ${(discovery?.peers.length ?? 0)} peers discovered but all offline. Try "All" filter.`

@@ -144,7 +144,8 @@ if [ -n "$AIRCRAFT_IP" ]; then
     REMOTE_CACHE="/tmp/l2bridge-remote-cache"
     CACHE_VALID=0
     if [ -f "$REMOTE_CACHE" ]; then
-        CACHE_AGE=$(( NOW_S - $(head -1 "$REMOTE_CACHE" 2>/dev/null || echo 0) ))
+        CACHE_TS=$(head -1 "$REMOTE_CACHE" 2>/dev/null)
+        CACHE_AGE=$(( NOW_S - ${CACHE_TS:-0} ))
         if [ "$CACHE_AGE" -lt 10 ]; then
             CACHE_VALID=1
             AIRCRAFT_REACHABLE=$(sed -n '2p' "$REMOTE_CACHE")

@@ -1613,7 +1613,9 @@ cmd_uninstall() {
         if uci get firewall.rvr_webui >/dev/null 2>&1; then
             uci delete firewall.rvr_webui
             uci commit firewall
-            /etc/init.d/firewall reload 2>/dev/null || true
+            # Do NOT reload firewall here — it triggers a kernel panic in the
+            # tun/QCA PPE driver when kmod-tun is loaded. The rule deletion
+            # takes effect on next boot or next manual firewall reload.
         fi
         rm -rf "$WEBUI_ROOT"
         /etc/init.d/uhttpd start 2>/dev/null || true

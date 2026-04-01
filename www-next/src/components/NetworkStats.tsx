@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
 } from 'recharts';
 import { ArrowDown, ArrowUp, Activity, AlertTriangle, Globe, Radio } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
@@ -68,6 +67,26 @@ function TimeWindowSelector({ timeWindow, onChange }: { timeWindow: TimeWindow; 
   );
 }
 
+function useContainerSize(ref: React.RefObject<HTMLDivElement | null>) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  const measure = useCallback(() => {
+    if (!ref.current) return;
+    const { width, height } = ref.current.getBoundingClientRect();
+    if (width > 0 && height > 0) setSize(s => (s.width === Math.floor(width) && s.height === Math.floor(height)) ? s : { width: Math.floor(width), height: Math.floor(height) });
+  }, [ref]);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, [ref, measure]);
+
+  return size;
+}
+
 function StatsChart({ data, rxKey, txKey, rxColor, txColor, rxGradId, txGradId }: {
   data: DataPoint[];
   rxKey: keyof DataPoint;
@@ -77,11 +96,13 @@ function StatsChart({ data, rxKey, txKey, rxColor, txColor, rxGradId, txGradId }
   rxGradId: string;
   txGradId: string;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { width, height } = useContainerSize(containerRef);
+
   return (
-    <div className="h-48 w-full">
-      {data.length > 1 ? (
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <AreaChart data={data} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+    <div ref={containerRef} className="h-48 w-full">
+      {data.length > 1 && width > 0 && height > 0 ? (
+          <AreaChart width={width} height={height} data={data} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id={rxGradId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={rxColor} stopOpacity={0.3} />
@@ -133,12 +154,11 @@ function StatsChart({ data, rxKey, txKey, rxColor, txColor, rxGradId, txGradId }
               isAnimationActive={false}
             />
           </AreaChart>
-        </ResponsiveContainer>
-      ) : (
+      ) : data.length <= 1 ? (
         <div className="flex items-center justify-center h-full text-sm text-text-secondary">
           Collecting data... ({data.length} samples)
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

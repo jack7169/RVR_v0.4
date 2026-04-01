@@ -949,16 +949,28 @@ cmd_setup() {
         echo "    Aircraft version: $aircraft_ver (matches GCS)"
     else
         echo "    Version mismatch: GCS=$gcs_ver Aircraft=$aircraft_ver"
-        # Try to update aircraft if it has rvr installed
+        local gcs_branch=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
+        local gcs_repo=$(cat /etc/rvr/repo 2>/dev/null || echo "jack7169/RVR_v0.4")
         if ssh_aircraft "$AIRCRAFT_IP" "command -v rvr >/dev/null 2>&1" 2>/dev/null; then
-            echo "    Updating aircraft to match GCS..."
-            if ssh_aircraft "$AIRCRAFT_IP" "rvr update" 2>&1; then
+            echo "    Updating aircraft via rvr update (branch: $gcs_branch)..."
+            if ssh_aircraft "$AIRCRAFT_IP" "rvr update --branch $gcs_branch" 2>&1; then
                 echo "    Aircraft updated successfully."
             else
                 log_warn "Aircraft update failed — continuing setup with mismatched version"
             fi
         else
-            echo "    Aircraft has no RVR CLI — will be configured during setup."
+            echo "    Aircraft has no RVR CLI — installing via install.sh..."
+            local install_url="https://raw.githubusercontent.com/${gcs_repo}/${gcs_branch}/install.sh"
+            if ssh_aircraft "$AIRCRAFT_IP" "wget -qO /tmp/rvr-install.sh '$install_url' && sh /tmp/rvr-install.sh --role aircraft" 2>&1; then
+                echo "    Aircraft installation complete."
+                # Ensure correct branch if not main
+                if [ "$gcs_branch" != "main" ]; then
+                    echo "    Switching aircraft to branch: $gcs_branch..."
+                    ssh_aircraft "$AIRCRAFT_IP" "rvr update --branch $gcs_branch" 2>&1 || true
+                fi
+            else
+                log_warn "Aircraft install failed — continuing setup with mismatched version"
+            fi
         fi
     fi
 

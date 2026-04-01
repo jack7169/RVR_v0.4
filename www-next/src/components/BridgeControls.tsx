@@ -109,11 +109,6 @@ export function BridgeControls({ status, onRefresh }: Props) {
           </Button>
         </div>
 
-        {status.version.update_available && (
-          <div className="mt-3 text-xs text-warning">
-            Update available: {status.version.current} &rarr; {status.version.latest}
-          </div>
-        )}
       </div>
 
       <CommandOutput

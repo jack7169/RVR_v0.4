@@ -14,6 +14,8 @@ Multi-stream Layer 2 bridge for BVLOS remotely piloted aircraft over Starlink sa
 - **Network charts** — recharts area charts with server-side 6h history, instant time window switching
 - **Link profiles** — presets for Starlink Direct (15/150Mbps) and Relay (5/5Mbps) with auto buffer computation
 - **Built-in documentation** — Help tab with quick start guide, link tuning reference, troubleshooting
+- **Update management** — one-click update from web UI, branch switching for dev testing, remote aircraft update via SSH
+- **Storage-safe updates** — shallow git fetch, asset cleanup, git gc, pre-flight space check (aborts if < 30MB free)
 - **Modern UI stack** — React 19, Radix UI, Sonner toasts, lucide icons, lazy loading with code splitting
 
 ## Architecture
@@ -85,6 +87,13 @@ curl -fsSL https://raw.githubusercontent.com/jack7169/RVR_v0.4/main/install.sh |
 l2bridge setup <aircraft_ip> <aircraft_name>
 ```
 
+### Update
+```bash
+l2bridge update                    # Update current branch
+l2bridge update --branch dev       # Switch to dev branch
+l2bridge branches                  # List available remote branches
+```
+
 ## Web UI
 
 The control panel runs on port 8081 with three tabs:
@@ -104,7 +113,8 @@ The control panel runs on port 8081 with three tabs:
 - **Bound Aircraft** — manage profiles with activate/connect/remove
 - **Link Settings** — KCPtun parameter editor with detailed hover help and Starlink preset
 - **Add Peer** — manually enter IPs for devices not auto-discovered
-- Version mismatch warnings between GCS and aircraft
+- Version and branch mismatch warnings between GCS and aircraft
+- **Update Management** — persistent update banner, one-click update modal with branch selector, remote update, version display in header
 
 ### Help
 - **Quick Start** — step-by-step install, bind, verify, switch aircraft
@@ -149,6 +159,7 @@ RVR_v0.4/
 │   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi, discovery.cgi
 │   └── assets/             # Code-split JS/CSS chunks (committed by CI)
 ├── packages/               # Offline .ipk bundle + l2tap binary
+├── docs/                   # Technical reference docs (update system, etc.)
 └── .github/workflows/      # CI: build-l2tap.yml, build-ui.yml
 ```
 

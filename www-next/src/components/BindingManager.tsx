@@ -188,9 +188,9 @@ function BindModal({
 // ── Peer Card ─────────────────────────────────────────────────────────
 
 function PeerCard({
-  peer, selfVersion, onBind, onReconnect,
+  peer, selfVersion, selfBranch, onBind, onReconnect,
 }: {
-  peer: DiscoveredPeer; selfVersion?: string; onBind: () => void; onReconnect: () => void;
+  peer: DiscoveredPeer; selfVersion?: string; selfBranch?: string; onBind: () => void; onReconnect: () => void;
 }) {
   const isOnline = peer.connection_mode === 'online';
   const modeColor = isOnline ? 'text-success'
@@ -198,12 +198,15 @@ function PeerCard({
     : 'text-text-secondary';
   const versionMismatch = selfVersion && peer.git_version && peer.git_version !== 'unknown'
     && selfVersion !== peer.git_version;
+  const branchMismatch = selfBranch && peer.git_branch && peer.git_branch !== selfBranch;
+  const peerBranch = peer.git_branch || 'main';
+  const isDevBranch = peerBranch !== 'main';
 
   return (
     <div className={cn(
       'bg-bg-card border rounded-xl p-4 flex flex-col gap-2',
       peer.is_self ? 'border-accent/30' : 'border-border',
-      versionMismatch && 'border-warning/40',
+      branchMismatch ? 'border-error/40' : versionMismatch && 'border-warning/40',
     )}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -226,11 +229,23 @@ function PeerCard({
         <span className={modeColor}>{peer.connection_mode}</span>
       </div>
 
-      {versionMismatch && (
-        <div className="text-xs text-warning bg-warning/10 rounded px-2 py-1">
-          Version mismatch: {peer.git_version?.slice(0, 7)} (this device: {selfVersion?.slice(0, 7)})
-        </div>
-      )}
+      <div className="flex items-center justify-between text-xs">
+        {peer.git_version && peer.git_version !== 'unknown' ? (
+          <span className={cn(
+            'font-mono',
+            branchMismatch ? 'text-error' : versionMismatch ? 'text-warning' : 'text-success',
+          )}>
+            <span className={isDevBranch ? 'text-accent' : undefined}>{peerBranch}</span>:{peer.git_version.slice(0, 7)}
+          </span>
+        ) : (
+          <span className="font-mono text-text-secondary/50">version unknown</span>
+        )}
+        {branchMismatch ? (
+          <span className="text-error">branch mismatch</span>
+        ) : versionMismatch ? (
+          <span className="text-warning">mismatch</span>
+        ) : null}
+      </div>
 
       {(peer.wg_rx_bytes > 0 || peer.wg_tx_bytes > 0) && (
         <div className="text-xs text-text-secondary">
@@ -648,13 +663,14 @@ export function BindingManager({ onRefresh }: Props) {
         {/* Peer grid (includes self, formatted consistently) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {discovery?.self && (
-            <PeerCard peer={discovery.self} selfVersion={discovery.self.git_version} onBind={() => {}} onReconnect={() => {}} />
+            <PeerCard peer={discovery.self} selfVersion={discovery.self.git_version} selfBranch={discovery.self.git_branch} onBind={() => {}} onReconnect={() => {}} />
           )}
           {filteredPeers.map(peer => (
             <PeerCard
               key={peer.ip}
               peer={peer}
               selfVersion={discovery?.self.git_version}
+              selfBranch={discovery?.self.git_branch}
               onBind={() => setBindPeer(peer)}
               onReconnect={() => {
                 if (peer.bound_profile_id) handleReconnect(peer.bound_profile_id);
@@ -694,7 +710,15 @@ export function BindingManager({ onRefresh }: Props) {
                     <Badge variant="info">GCS</Badge>
                   </div>
                   <div className="text-xs font-mono text-text-secondary">{selfPeer?.ip || '—'}</div>
-                  <div className="text-xs text-success mt-1">online</div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs text-success">online</span>
+                    {selfPeer?.git_version && selfPeer.git_version !== 'unknown' && (
+                      <span className="text-xs font-mono text-text-secondary">
+                        {selfPeer.git_branch && selfPeer.git_branch !== 'main' && <span className="text-accent">{selfPeer.git_branch}:</span>}
+                        {selfPeer.git_version.slice(0, 7)}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Connection indicator */}
@@ -723,11 +747,59 @@ export function BindingManager({ onRefresh }: Props) {
                     <Badge variant="neutral">Aircraft</Badge>
                   </div>
                   <div className="text-xs font-mono text-text-secondary">{activeProfile.tailscale_ip}</div>
-                  <div className={cn('text-xs mt-1', isOnline ? 'text-success' : 'text-error')}>
-                    {aircraftPeer?.connection_mode || 'unknown'}
+                  <div className="flex items-center justify-between mt-1">
+                    <span className={cn('text-xs', isOnline ? 'text-success' : 'text-error')}>
+                      {aircraftPeer?.connection_mode || 'unknown'}
+                    </span>
+                    {aircraftPeer?.git_version && aircraftPeer.git_version !== 'unknown' && (
+                      <span className="text-xs font-mono text-text-secondary">
+                        {aircraftPeer.git_branch && aircraftPeer.git_branch !== 'main' && <span className="text-accent">{aircraftPeer.git_branch}:</span>}
+                        {aircraftPeer.git_version.slice(0, 7)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
+
+              {/* Branch mismatch warning (more severe) */}
+              {selfPeer?.git_branch && aircraftPeer?.git_branch
+                && selfPeer.git_branch !== aircraftPeer.git_branch && (
+                <div className="mt-3 bg-error/10 border border-error/30 rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="text-xs text-error">
+                    Branch mismatch: GCS on <code>{selfPeer.git_branch}</code>, Aircraft on <code>{aircraftPeer.git_branch}</code>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button size="sm" variant="danger" onClick={() => {
+                      import('../api/client').then(({ updateRemote }) => {
+                        updateRemote(activeProfile.tailscale_ip, selfPeer!.git_branch);
+                      });
+                    }}>
+                      Sync Aircraft
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Version mismatch warning */}
+              {selfPeer?.git_version && aircraftPeer?.git_version
+                && selfPeer.git_version !== 'unknown' && aircraftPeer.git_version !== 'unknown'
+                && selfPeer.git_version !== aircraftPeer.git_version
+                && selfPeer.git_branch === aircraftPeer?.git_branch && (
+                <div className="mt-3 bg-warning/10 border border-warning/30 rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="text-xs text-warning">
+                    Version mismatch: GCS <code>{selfPeer.git_version.slice(0, 7)}</code> ≠ Aircraft <code>{aircraftPeer.git_version.slice(0, 7)}</code>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button size="sm" variant="warning" onClick={() => {
+                      import('../api/client').then(({ updateRemote }) => {
+                        updateRemote(activeProfile.tailscale_ip);
+                      });
+                    }}>
+                      Update Aircraft
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex justify-center gap-2 mt-3">

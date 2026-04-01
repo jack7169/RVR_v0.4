@@ -92,6 +92,7 @@ export interface StatusResponse {
   version: {
     current: string;
     latest: string;
+    branch: string;
     update_available: boolean;
   };
 }
@@ -148,6 +149,7 @@ export interface DiscoveredPeer {
   role: 'gcs' | 'aircraft' | 'unknown';
   connection_mode: 'online' | 'stale' | 'offline';
   git_version?: string;
+  git_branch?: string;
   is_self: boolean;
   is_bound: boolean;
   bound_profile_id?: string;

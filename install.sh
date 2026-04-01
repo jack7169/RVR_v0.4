@@ -165,8 +165,10 @@ ensure_opkg_config() {
 download_repo() {
     if [ -d "$INSTALL_DIR/.git" ] && command -v git >/dev/null 2>&1; then
         info "Existing installation found, pulling latest..."
-        cd "$INSTALL_DIR" && git fetch origin "$REPO_BRANCH" 2>&1 || true
+        cd "$INSTALL_DIR" && git fetch --depth=1 origin "$REPO_BRANCH" 2>&1 || true
         git reset --hard "origin/$REPO_BRANCH" 2>&1 || true
+        git reflog expire --expire=now --all 2>/dev/null
+        git gc --prune=all -q 2>/dev/null
         ok "Updated to latest"
         return 0
     fi
@@ -298,13 +300,16 @@ setup_git_repo() {
     cd "$INSTALL_DIR"
     git init -q
     git remote add origin "$REPO_URL"
-    git fetch -q origin "$REPO_BRANCH" 2>&1 || {
+    git fetch --depth=1 -q origin "$REPO_BRANCH" 2>&1 || {
         warn "Git fetch failed (network issue or private repo)"
         warn "l2bridge update will not work until this is resolved"
         return 0
     }
     git checkout -b "$REPO_BRANCH" 2>/dev/null || true
     git reset --hard "origin/$REPO_BRANCH" 2>/dev/null || true
+    # Save branch for update tracking
+    mkdir -p /etc/l2bridge
+    echo "$REPO_BRANCH" > /etc/l2bridge/branch
     ok "Git repository initialized"
 }
 

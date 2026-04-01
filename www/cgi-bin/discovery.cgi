@@ -13,6 +13,7 @@ echo ""
 HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown")
 VERSION="4.0"
 GIT_VERSION=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
 
 # Determine role from installed init scripts
 ROLE="unknown"
@@ -50,6 +51,7 @@ cat << EOF
   "role": "$ROLE",
   "version": "$VERSION",
   "git_version": "$GIT_VERSION",
+  "git_branch": "$GIT_BRANCH",
   "l2bridge_installed": true,
   "services": {
     "kcptun": "$KCPTUN_STATUS",

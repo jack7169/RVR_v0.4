@@ -554,6 +554,7 @@ run_discovery_scan() {
     [ -f /etc/init.d/kcptun-server ] && self_role="gcs"
     [ -f /etc/init.d/kcptun-client ] && self_role="aircraft"
     local self_gitver=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
+    local self_gitbranch=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
     local self_ip=$(ip -4 addr show 2>/dev/null | awk '/inet 100\./ {gsub(/\/.*/, "", $2); print $2; exit}')
 
     # Collect peer IPs from all sources
@@ -584,9 +585,10 @@ run_discovery_scan() {
                 p_hostname=$(echo "$probe_json" | sed -n 's/.*"hostname"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
                 p_role=$(echo "$probe_json" | sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
                 p_gitver=$(echo "$probe_json" | sed -n 's/.*"git_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-                echo "$ip|$handshake|$rx|$tx|online|${p_hostname:-unknown}|${p_role:-unknown}||||${p_gitver:-unknown}"
+                p_gitbranch=$(echo "$probe_json" | sed -n 's/.*"git_branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                echo "$ip|$handshake|$rx|$tx|online|${p_hostname:-unknown}|${p_role:-unknown}||||${p_gitver:-unknown}|${p_gitbranch:-main}"
             else
-                echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown"
+                echo "$ip|$handshake|$rx|$tx|offline|unknown|unknown|unknown|unknown|0|unknown|main"
             fi
         ) >> "$tmp_results" &
         job_count=$((job_count + 1))
@@ -603,6 +605,7 @@ run_discovery_scan() {
         printf '    "role": "%s",\n' "$self_role"
         printf '    "connection_mode": "online",\n'
         printf '    "git_version": "%s",\n' "$self_gitver"
+        printf '    "git_branch": "%s",\n' "$self_gitbranch"
         printf '    "is_self": true,\n'
         printf '    "is_bound": false,\n'
         printf '    "wg_rx_bytes": 0,\n'
@@ -610,7 +613,7 @@ run_discovery_scan() {
         printf '  },\n  "peers": ['
 
         local first=1
-        while IFS='|' read -r ip handshake rx tx mode hostname role _ _ _ gitver; do
+        while IFS='|' read -r ip handshake rx tx mode hostname role _ _ _ gitver gitbranch; do
             [ -z "$ip" ] && continue
             local is_bound="false" bound_id="" bound_name=""
             # Check bound status
@@ -633,6 +636,7 @@ run_discovery_scan() {
             [ -n "$bound_id" ] && printf '"bound_profile_id":"%s",' "$bound_id"
             [ -n "$bound_name" ] && printf '"bound_profile_name":"%s",' "$bound_name"
             printf '"git_version":"%s",' "${gitver:-unknown}"
+            printf '"git_branch":"%s",' "${gitbranch:-main}"
             printf '"wg_rx_bytes":%s,' "${rx:-0}"
             printf '"wg_tx_bytes":%s,' "${tx:-0}"
             printf '"wg_last_handshake":%s' "${handshake:-0}"
@@ -658,7 +662,7 @@ discover_peers() {
     if [ -f "$DISCOVERY_CACHE" ]; then
         cat "$DISCOVERY_CACHE"
     else
-        printf '{"self":{"hostname":"scanning...","ip":"","role":"unknown","connection_mode":"online","git_version":"unknown","is_self":true,"is_bound":false,"wg_rx_bytes":0,"wg_tx_bytes":0},"peers":[]}\n'
+        printf '{"self":{"hostname":"scanning...","ip":"","role":"unknown","connection_mode":"online","git_version":"unknown","git_branch":"main","is_self":true,"is_bound":false,"wg_rx_bytes":0,"wg_tx_bytes":0},"peers":[]}\n'
     fi
     exit 0
 }
@@ -1457,10 +1461,127 @@ main() {
             update_link_settings_action "$settings_json"
             ;;
 
+        # Update management
+        update_local)
+            local branch=$(parse_json "branch" "$post_data")
+            update_local_action "$branch"
+            ;;
+        update_remote)
+            local ip=$(parse_json "aircraft_ip" "$post_data")
+            local branch=$(parse_json "branch" "$post_data")
+            update_remote_action "$ip" "$branch"
+            ;;
+        check_update)
+            check_update_action
+            ;;
+        list_branches)
+            list_branches_action
+            ;;
+
         *)
             json_error "Unknown action: $action"
             ;;
     esac
+}
+
+# ── Update Management ─────────────────────────────────────────────────
+
+# Update this device (runs l2bridge update in background)
+update_local_action() {
+    local branch="$1"
+    [ -x "$L2BRIDGE" ] || json_error "l2bridge not found"
+
+    local branch_arg=""
+    [ -n "$branch" ] && branch_arg="--branch $branch"
+
+    : > /tmp/l2bridge-setup.log
+    (
+        echo "[UPDATE LOCAL] Starting update on $(hostname)${branch:+ (branch: $branch)}..."
+        "$L2BRIDGE" update $branch_arg >> /tmp/l2bridge-setup.log 2>&1
+        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
+    ) >> /tmp/l2bridge-setup.log 2>&1 &
+
+    json_response '{"success": true, "message": "Update started", "log_file": "/tmp/l2bridge-setup.log"}'
+}
+
+# Update a remote peer via SSH
+update_remote_action() {
+    local ip="$1"
+    local branch="$2"
+    [ -z "$ip" ] && json_error "aircraft_ip is required"
+    validate_ip "$ip" || json_error "Invalid IP format (must be 100.x.x.x)"
+    [ -f "$SSH_KEY" ] || json_error "SSH key not available"
+
+    local branch_arg=""
+    [ -n "$branch" ] && branch_arg="--branch $branch"
+
+    : > /tmp/l2bridge-setup.log
+    (
+        echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..."
+        _ssh_remote "$ip" "l2bridge update $branch_arg" >> /tmp/l2bridge-setup.log 2>&1
+        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/l2bridge-setup.log
+    ) >> /tmp/l2bridge-setup.log 2>&1 &
+
+    json_response '{"success": true, "message": "Remote update started", "log_file": "/tmp/l2bridge-setup.log"}'
+}
+
+# Force-refresh version check (clears cache, re-fetches from GitHub)
+check_update_action() {
+    rm -f /tmp/l2bridge-latest-version
+
+    local current=""
+    [ -f /etc/l2bridge/version ] && current=$(cat /etc/l2bridge/version)
+
+    local branch=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+
+    local latest=""
+    local repo_path=$(cat /etc/l2bridge/repo 2>/dev/null || echo "")
+    if [ -z "$repo_path" ]; then
+        repo_path="jack7169/RVR_v0.4"
+    fi
+
+    if [ -n "$repo_path" ]; then
+        latest=$(wget -q -T 3 -O - "https://api.github.com/repos/$repo_path/commits/$branch" 2>/dev/null | \
+            sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([a-f0-9]*\)".*/\1/p' | head -1)
+        [ -n "$latest" ] && latest=$(echo "$latest" | cut -c1-7)
+    fi
+
+    [ -n "$latest" ] && echo "$latest" > /tmp/l2bridge-latest-version
+
+    local update_available="false"
+    if [ -n "$current" ] && [ -n "$latest" ] && [ "$current" != "$latest" ]; then
+        update_available="true"
+    fi
+
+    json_response "{\"current\": \"${current:-unknown}\", \"latest\": \"${latest:-unknown}\", \"branch\": \"$branch\", \"update_available\": $update_available}"
+}
+
+# List available remote branches
+list_branches_action() {
+    local repo_dir=""
+    if [ -d "/root/RVR_v0.4/.git" ]; then
+        repo_dir="/root/RVR_v0.4"
+    fi
+    [ -z "$repo_dir" ] && json_error "Git repository not found"
+
+    local current=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
+
+    cd "$repo_dir"
+    local branches=$(git ls-remote --heads origin 2>/dev/null | awk '{print substr($2, 12)}')
+
+    echo "Content-Type: application/json"
+    echo ""
+    printf '{"current":"%s","branches":[' "$current"
+
+    local first=1
+    for b in $branches; do
+        [ -z "$b" ] && continue
+        [ $first -eq 0 ] && printf ','
+        printf '"%s"' "$b"
+        first=0
+    done
+    printf ']}'
+    exit 0
 }
 
 main

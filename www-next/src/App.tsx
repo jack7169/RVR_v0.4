@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
+import { UpdateBanner } from './components/UpdateBanner';
 import { ConnectionBar } from './components/ConnectionBar';
 import { GcsStatusCard } from './components/GcsStatusCard';
 import { AircraftStatusCard } from './components/AircraftStatusCard';
@@ -14,6 +15,7 @@ const LogViewer = lazy(() => import('./components/LogViewer').then(m => ({ defau
 const BindingManager = lazy(() => import('./components/BindingManager').then(m => ({ default: m.BindingManager })));
 const HelpPage = lazy(() => import('./components/HelpPage').then(m => ({ default: m.HelpPage })));
 const OutagePanel = lazy(() => import('./components/OutagePanel').then(m => ({ default: m.OutagePanel })));
+const UpdateModal = lazy(() => import('./components/UpdateModal').then(m => ({ default: m.UpdateModal })));
 
 function Skeleton({ height = 'h-48' }: { height?: string }) {
   return (
@@ -24,6 +26,7 @@ function Skeleton({ height = 'h-48' }: { height?: string }) {
 export default function App() {
   const { status, error, lastUpdate, refresh } = useStatus();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
 
   return (
     <>
@@ -32,7 +35,28 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onProfileChange={refresh}
+        version={status?.version}
       />
+
+      {status?.version.update_available && (
+        <UpdateBanner
+          current={status.version.current}
+          latest={status.version.latest}
+          branch={status.version.branch || 'main'}
+          onUpdate={() => setUpdateModalOpen(true)}
+          onRefresh={refresh}
+        />
+      )}
+
+      {status && (
+        <Suspense fallback={null}>
+          <UpdateModal
+            open={updateModalOpen}
+            onClose={() => setUpdateModalOpen(false)}
+            status={status}
+          />
+        </Suspense>
+      )}
 
       <main className="max-w-5xl mx-auto p-4 space-y-4">
         {error && !status && (

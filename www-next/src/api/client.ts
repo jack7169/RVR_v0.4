@@ -132,6 +132,44 @@ export async function fetchStatsHistory(windowSeconds = 900): Promise<StatsHisto
   return res.json();
 }
 
+// ── Update Management ────────────────────────────────────────────────
+
+export async function updateLocal(branch?: string): Promise<CommandResponse> {
+  const body: Record<string, unknown> = { action: 'update_local' };
+  if (branch) body.branch = branch;
+  return postApi(body);
+}
+
+export async function updateRemote(aircraftIp: string, branch?: string): Promise<CommandResponse> {
+  const body: Record<string, unknown> = { action: 'update_remote', aircraft_ip: aircraftIp };
+  if (branch) body.branch = branch;
+  return postApi(body);
+}
+
+export interface CheckUpdateResponse {
+  current: string;
+  latest: string;
+  branch: string;
+  update_available: boolean;
+}
+
+export async function checkUpdate(): Promise<CheckUpdateResponse> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=check_update`);
+  if (!res.ok) throw new Error(`Check update failed: ${res.status}`);
+  return res.json();
+}
+
+export interface BranchList {
+  current: string;
+  branches: string[];
+}
+
+export async function listBranches(): Promise<BranchList> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=list_branches`);
+  if (!res.ok) throw new Error(`List branches failed: ${res.status}`);
+  return res.json();
+}
+
 // ── Capture & Files ───────────────────────────────────────────────────
 
 export async function startCapture(duration = 60): Promise<CommandResponse> {

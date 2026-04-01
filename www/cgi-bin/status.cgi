@@ -381,6 +381,7 @@ fi
 
 # Version tracking
 VERSION_CURRENT=$(cat /etc/l2bridge/version 2>/dev/null || echo "unknown")
+VERSION_BRANCH=$(cat /etc/l2bridge/branch 2>/dev/null || echo "main")
 VERSION_LATEST=""
 VERSION_UPDATE="false"
 REPO_PATH=$(cat /etc/l2bridge/repo 2>/dev/null || echo "")
@@ -397,7 +398,7 @@ if [ -n "$REPO_PATH" ] && [ "$VERSION_CURRENT" != "unknown" ]; then
     fi
     # Fetch from GitHub if cache miss (with 3s timeout to avoid blocking CGI)
     if [ -z "$VERSION_LATEST" ]; then
-        VERSION_LATEST=$(wget -q -T 3 -O- "https://api.github.com/repos/$REPO_PATH/commits/main" 2>/dev/null | awk -F'"' '/"sha"/ {print substr($4,1,7); exit}')
+        VERSION_LATEST=$(wget -q -T 3 -O- "https://api.github.com/repos/$REPO_PATH/commits/$VERSION_BRANCH" 2>/dev/null | awk -F'"' '/"sha"/ {print substr($4,1,7); exit}')
         if [ -n "$VERSION_LATEST" ]; then
             echo "$VERSION_LATEST" > "$CACHE_FILE"
         fi
@@ -518,6 +519,7 @@ cat << EOF
   "version": {
     "current": "$VERSION_CURRENT",
     "latest": "$VERSION_LATEST",
+    "branch": "$VERSION_BRANCH",
     "update_available": $VERSION_UPDATE
   }
 }

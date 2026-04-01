@@ -1758,24 +1758,49 @@ cmd_update() {
         exit 1
     fi
 
+    # Parse --branch argument (default: stored branch or main)
+    local branch="main"
+    [ -f "$WEBUI_CONFIG_DIR/branch" ] && branch=$(cat "$WEBUI_CONFIG_DIR/branch")
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --branch) branch="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Pre-flight space check — abort if < 30MB free on /overlay
+    local free_kb=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
+    if [ "${free_kb:-999999}" -lt 30720 ]; then
+        log_error "Not enough space for update (${free_kb}KB free, need 30MB)"
+        echo "  Free /overlay space: ${free_kb}KB — minimum 30MB required"
+        echo "  Run 'l2bridge capture stop' and delete old captures to free space"
+        exit 1
+    fi
+
     echo "Updating L2Bridge from GitHub..."
     echo "  Repository: $repo_dir"
+    echo "  Branch: $branch"
 
     local old_hash=$(cd "$repo_dir" && git rev-parse --short HEAD 2>/dev/null)
     echo "  Current version: $old_hash"
 
     cd "$repo_dir"
-    git fetch origin main 2>&1 || { log_error "Failed to fetch updates"; exit 1; }
+    # Shallow fetch — only latest commit, saves ~90% storage vs full history
+    git fetch --depth=1 origin "$branch" 2>&1 || { log_error "Failed to fetch branch '$branch'"; exit 1; }
 
-    local new_hash=$(git rev-parse --short origin/main 2>/dev/null)
-    if [ "$old_hash" = "$new_hash" ]; then
-        echo "  Already up to date ($old_hash)"
+    local new_hash=$(git rev-parse --short "origin/$branch" 2>/dev/null)
+    if [ "$old_hash" = "$new_hash" ] && [ "$(cat "$WEBUI_CONFIG_DIR/branch" 2>/dev/null)" = "$branch" ]; then
+        echo "  Already up to date ($old_hash on $branch)"
         return 0
     fi
 
-    git reset --hard origin/main 2>&1 || { log_error "Failed to apply updates"; exit 1; }
+    git reset --hard "origin/$branch" 2>&1 || { log_error "Failed to apply updates"; exit 1; }
     chmod +x "$repo_dir/l2bridge"
     chmod +x "$repo_dir/www/cgi-bin/"*.cgi 2>/dev/null
+
+    # Clean stale git objects to reclaim storage
+    git reflog expire --expire=now --all 2>/dev/null
+    git gc --prune=all -q 2>/dev/null
 
     # Update l2tap binary if new one available
     if [ -f "$repo_dir/packages/common/l2tap-aarch64" ]; then
@@ -1788,23 +1813,32 @@ cmd_update() {
         ln -sf "$repo_dir/l2bridge" /usr/bin/l2bridge
     fi
 
-    echo "  Updated: $old_hash -> $new_hash"
+    echo "  Updated: $old_hash -> $new_hash ($branch)"
 
     if [ -d "$WEBUI_ROOT" ]; then
         log_info "Updating web UI files..."
         local src_www="$repo_dir/www"
         if [ -d "$src_www" ]; then
             cp "$src_www/index.html" "$WEBUI_ROOT/"
+            # Clean old assets before copying new — prevents stale chunk accumulation
             if [ -d "$src_www/assets" ]; then
+                rm -rf "$WEBUI_ROOT/assets"
                 mkdir -p "$WEBUI_ROOT/assets"
                 cp -r "$src_www/assets/"* "$WEBUI_ROOT/assets/"
             fi
             cp "$src_www/cgi-bin/"*.cgi "$WEBUI_ROOT/cgi-bin/"
             chmod +x "$WEBUI_ROOT/cgi-bin/"*.cgi
+            mkdir -p "$WEBUI_CONFIG_DIR"
             echo "$new_hash" > "$WEBUI_CONFIG_DIR/version"
+            echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
             rm -f /tmp/l2bridge-latest-version
             log_info "Web UI updated"
         fi
+    else
+        # No web UI installed — still save version/branch
+        mkdir -p "$WEBUI_CONFIG_DIR"
+        echo "$new_hash" > "$WEBUI_CONFIG_DIR/version"
+        echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
     fi
 
     local AIRCRAFT_IP=$(get_aircraft_ip 2>/dev/null)
@@ -1814,7 +1848,36 @@ cmd_update() {
     fi
 
     echo ""
-    echo "Update complete."
+    echo "Update complete. ($branch:$new_hash)"
+}
+
+#############################################
+# BRANCHES — list available remote branches
+#############################################
+cmd_branches() {
+    local repo_dir=""
+    local script_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
+    local script_dir=$(dirname "$script_path")
+    if [ -d "$script_dir/.git" ]; then
+        repo_dir="$script_dir"
+    elif [ -d "/root/RVR_v0.4/.git" ]; then
+        repo_dir="/root/RVR_v0.4"
+    fi
+
+    if [ -z "$repo_dir" ]; then
+        log_error "Cannot find git repository"
+        exit 1
+    fi
+
+    local current=$(cat "$WEBUI_CONFIG_DIR/branch" 2>/dev/null || echo "main")
+    echo "Current branch: $current"
+    echo ""
+    echo "Available branches:"
+    cd "$repo_dir"
+    git ls-remote --heads origin 2>/dev/null | awk '{
+        branch = substr($2, 12)
+        print "  " branch
+    }'
 }
 
 #############################################
@@ -2051,7 +2114,8 @@ case "$CMD" in
     webui-install) cmd_webui_install ;;
     webui-remove) cmd_webui_remove ;;
     capture|cap) cmd_capture "$@" ;;
-    update) cmd_update ;;
+    update) cmd_update "$@" ;;
+    branches) cmd_branches ;;
     remove-aircraft) cmd_remove_aircraft "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
     help|-h|--help) print_usage ;;

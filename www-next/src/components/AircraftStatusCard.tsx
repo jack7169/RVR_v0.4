@@ -29,7 +29,7 @@ export function AircraftStatusCard({ status }: Props) {
   return (
     <Card
       title={title}
-      badge={<Badge variant={aircraft.reachable ? 'success' : 'error'}>{aircraft.reachable ? 'Reachable' : 'Unreachable'}</Badge>}
+      badge={<Badge variant={aircraft.reachable ? 'success' : aircraft.tailscale_ip ? 'error' : 'neutral'}>{aircraft.reachable ? 'Reachable' : aircraft.tailscale_ip ? 'Unreachable' : 'Not bound'}</Badge>}
     >
       <StatusRow label={<IconLabel icon={Plane} label="Profile" />}>{aircraft.profile_name || 'None'}</StatusRow>
       <StatusRow label={<IconLabel icon={Wifi} label="VPN IP" />}>

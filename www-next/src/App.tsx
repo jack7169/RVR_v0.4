@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -27,6 +27,17 @@ export default function App() {
   const { status, error, lastUpdate, refresh } = useStatus();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [suppressBanner, setSuppressBanner] = useState(() => {
+    try { return sessionStorage.getItem('update-just-applied') === '1'; } catch { return false; }
+  });
+
+  // Clear suppression once status confirms no update pending
+  useEffect(() => {
+    if (suppressBanner && status && !status.version.update_available) {
+      setSuppressBanner(false);
+      try { sessionStorage.removeItem('update-just-applied'); } catch {}
+    }
+  }, [suppressBanner, status]);
 
   return (
     <>
@@ -38,7 +49,7 @@ export default function App() {
         version={status?.version}
       />
 
-      {status?.version.update_available && (
+      {status?.version.update_available && !suppressBanner && (
         <UpdateBanner
           current={status.version.current}
           latest={status.version.latest}

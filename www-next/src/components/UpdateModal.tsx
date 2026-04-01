@@ -214,7 +214,10 @@ export function UpdateModal({ open, onClose, status }: Props) {
           )}
           <div className="flex justify-end gap-2">
             {success && (
-              <Button variant="primary" size="sm" onClick={() => window.location.reload()}>
+              <Button variant="primary" size="sm" onClick={() => {
+                try { sessionStorage.setItem('update-just-applied', '1'); } catch {}
+                window.location.reload();
+              }}>
                 Reload Page
               </Button>
             )}

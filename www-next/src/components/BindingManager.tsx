@@ -592,8 +592,21 @@ export function BindingManager({ onRefresh }: Props) {
 
   const handleDelete = async (id: string) => {
     try {
+      const profile = profiles?.profiles[id];
       await unbindAircraft(id);
       toast('Aircraft unbound', 'success');
+      // Optimistically clear is_bound on the matching peer so UI updates instantly
+      // (discovery cache is stale until next background scan)
+      if (profile && discovery) {
+        setDiscovery({
+          ...discovery,
+          peers: discovery.peers.map(p =>
+            p.ip === profile.tailscale_ip
+              ? { ...p, is_bound: false, bound_profile_id: undefined, bound_profile_name: undefined }
+              : p
+          ),
+        });
+      }
       loadData();
       onRefresh();
     } catch {

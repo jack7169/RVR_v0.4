@@ -116,6 +116,12 @@ export async function fetchOutages(): Promise<import('./types').OutageResponse> 
   return res.json();
 }
 
+export async function fetchStarlinkOutages(windowSeconds = 3600): Promise<import('./types').StarlinkOutageResponse> {
+  const res = await fetch(`${API_BASE}/api.cgi?action=starlink_outages&window=${windowSeconds}`);
+  if (!res.ok) throw new Error(`Starlink outages fetch failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchKcpStats(): Promise<import('./types').KcpStats> {
   const res = await fetch(`${API_BASE}/api.cgi?action=kcp_stats`);
   if (!res.ok) throw new Error(`KCP stats fetch failed: ${res.status}`);

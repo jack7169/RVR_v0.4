@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -8,6 +8,7 @@ import { AircraftStatusCard } from './components/AircraftStatusCard';
 import { BridgeControls } from './components/BridgeControls';
 import { CaptureControls } from './components/CaptureControls';
 import { FileManager } from './components/FileManager';
+import { useNetHistory, type TimeWindow } from './hooks/useNetHistory';
 
 // Recharts has an internal react-redux subscription bug that can cause
 // infinite render loops (React #185). This boundary contains the crash
@@ -34,16 +35,52 @@ class ChartBoundary extends Component<
 }
 
 // Lazy load heavy components
-const NetworkStats = lazy(() => import('./components/NetworkStats').then(m => ({ default: m.NetworkStats })));
+const BridgeTrafficPanel = lazy(() => import('./components/NetworkStats').then(m => ({ default: m.BridgeTrafficPanel })));
+const WanTrafficPanel = lazy(() => import('./components/NetworkStats').then(m => ({ default: m.WanTrafficPanel })));
 const LogViewer = lazy(() => import('./components/LogViewer').then(m => ({ default: m.LogViewer })));
 const BindingManager = lazy(() => import('./components/BindingManager').then(m => ({ default: m.BindingManager })));
 const HelpPage = lazy(() => import('./components/HelpPage').then(m => ({ default: m.HelpPage })));
 const OutagePanel = lazy(() => import('./components/OutagePanel').then(m => ({ default: m.OutagePanel })));
+const StarlinkPanel = lazy(() => import('./components/StarlinkPanel').then(m => ({ default: m.StarlinkPanel })));
 const UpdateModal = lazy(() => import('./components/UpdateModal').then(m => ({ default: m.UpdateModal })));
 
 function Skeleton({ height = 'h-48' }: { height?: string }) {
   return (
     <div className={`${height} bg-bg-card border border-border rounded-xl animate-pulse`} />
+  );
+}
+
+function TrafficPanels({ status, lastUpdate }: { status: import('./api/types').StatusResponse; lastUpdate: Date | null }) {
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
+  const { getWindow, current, revision } = useNetHistory(status);
+  const data = useMemo(() => getWindow(timeWindow), [getWindow, timeWindow, revision]);
+
+  return (
+    <>
+      {/* 1. Bridge Traffic */}
+      <ChartBoundary resetKey={lastUpdate}>
+        <Suspense fallback={<Skeleton height="h-80" />}>
+          <BridgeTrafficPanel status={status} data={data} current={current} timeWindow={timeWindow} onTimeWindowChange={setTimeWindow} />
+        </Suspense>
+      </ChartBoundary>
+
+      {/* 2. KCPtun Link Quality */}
+      <Suspense fallback={<Skeleton height="h-48" />}>
+        <OutagePanel />
+      </Suspense>
+
+      {/* 3. WAN Traffic */}
+      <ChartBoundary resetKey={lastUpdate}>
+        <Suspense fallback={<Skeleton height="h-80" />}>
+          <WanTrafficPanel status={status} data={data} current={current} timeWindow={timeWindow} onTimeWindowChange={setTimeWindow} />
+        </Suspense>
+      </ChartBoundary>
+
+      {/* 4. Starlink Link Quality */}
+      <Suspense fallback={<Skeleton height="h-48" />}>
+        <StarlinkPanel />
+      </Suspense>
+    </>
   );
 }
 
@@ -126,15 +163,7 @@ export default function App() {
               <AircraftStatusCard status={status} />
             </div>
 
-            <ChartBoundary resetKey={lastUpdate}>
-              <Suspense fallback={<Skeleton height="h-80" />}>
-                <NetworkStats status={status} />
-              </Suspense>
-            </ChartBoundary>
-
-            <Suspense fallback={<Skeleton height="h-48" />}>
-              <OutagePanel />
-            </Suspense>
+            <TrafficPanels status={status} lastUpdate={lastUpdate} />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <BridgeControls status={status} onRefresh={refresh} />

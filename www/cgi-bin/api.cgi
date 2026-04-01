@@ -1036,6 +1036,36 @@ get_stats_history() {
     exit 0
 }
 
+# Query Starlink dish for outage history
+get_starlink_outages() {
+    local window=$(echo "$QUERY_STRING" | sed -n 's/.*window=\([0-9]*\).*/\1/p')
+    window="${window:-3600}"
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    # Require python3 and starlink_grpc
+    if ! command -v python3 >/dev/null 2>&1; then
+        printf '{"available":false,"error":"python3 not installed"}\n'
+        exit 0
+    fi
+
+    local script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+    local grpc_tools=""
+    for d in /opt/starnav/starlink-grpc-tools /root/Starnav/starlink-grpc-tools; do
+        [ -f "$d/starlink_grpc.py" ] && { grpc_tools="$d"; break; }
+    done
+
+    if [ -z "$grpc_tools" ]; then
+        printf '{"available":false,"error":"starlink-grpc-tools not found"}\n'
+        exit 0
+    fi
+
+    PYTHONPATH="$grpc_tools:${PYTHONPATH:-}" timeout 10 python3 "$script_dir/starlink_outages.py" "$window" 2>/dev/null || \
+        printf '{"available":false,"error":"query failed"}\n'
+    exit 0
+}
+
 # Get current link settings from kcptun server config
 # Compute and apply buffer sizes from link speed profile
 # Formula: per_stage_bytes = (upload_bps / 8) * (latency_ms / 1000) / 4
@@ -1449,6 +1479,9 @@ main() {
             ;;
         stats_history)
             get_stats_history
+            ;;
+        starlink_outages)
+            get_starlink_outages
             ;;
         get_link_profile)
             get_link_profile

@@ -212,6 +212,32 @@ export interface OutageResponse {
   };
 }
 
+export interface StarlinkOutageEvent {
+  type: 'drop' | 'recovery';
+  cause: string;
+  start: number;
+  end: number;
+  duration_seconds: number;
+  drop_rate: number;
+}
+
+export interface StarlinkOutageResponse {
+  available: boolean;
+  error?: string;
+  outages: StarlinkOutageEvent[];
+  summary: {
+    total_drops: number;
+    total_recoveries: number;
+    uptime_pct: number;
+    avg_latency_ms: number;
+    total_seconds_down: number;
+  };
+  current: {
+    connected: boolean;
+    latency_ms: number;
+  };
+}
+
 export interface KcpStats {
   timestamp: number;
   bytes_sent: number;

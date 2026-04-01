@@ -168,20 +168,19 @@ function StatsChart({ data, rxKey, txKey, rxColor, txColor, rxGradId, txGradId }
   );
 }
 
-export function NetworkStats({ status }: Props) {
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
-  const { getWindow, current, revision } = useNetHistory(status);
+interface TrafficPanelProps {
+  status: StatusResponse;
+  data: DataPoint[];
+  current: DataPoint;
+  timeWindow: TimeWindow;
+  onTimeWindowChange: (w: TimeWindow) => void;
+}
+
+export function BridgeTrafficPanel({ status, data, current, timeWindow, onTimeWindowChange }: TrafficPanelProps) {
   const { rvr_bridge } = status.network_stats;
-  // Handle old backend responses that send 'tailscale' instead of 'wan'
-  const wan = (status.network_stats as Record<string, unknown>).wan as typeof status.network_stats.wan
-    ?? { interface: 'unknown', rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0 };
   const { bridge_filter } = status;
 
-  const data = useMemo(() => getWindow(timeWindow), [getWindow, timeWindow, revision]);
-
   return (
-    <div className="space-y-4">
-      {/* RVR Bridge Panel */}
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -189,7 +188,7 @@ export function NetworkStats({ status }: Props) {
             <h3 className="font-semibold">Bridge Traffic</h3>
             <span className="text-xs text-text-secondary">rvr_bridge</span>
           </div>
-          <TimeWindowSelector timeWindow={timeWindow} onChange={setTimeWindow} />
+          <TimeWindowSelector timeWindow={timeWindow} onChange={onTimeWindowChange} />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
@@ -243,8 +242,14 @@ export function NetworkStats({ status }: Props) {
           </div>
         </div>
       </div>
+  );
+}
 
-      {/* WAN Panel */}
+export function WanTrafficPanel({ status, data, current, timeWindow, onTimeWindowChange }: TrafficPanelProps) {
+  const wan = (status.network_stats as Record<string, unknown>).wan as typeof status.network_stats.wan
+    ?? { interface: 'unknown', rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0 };
+
+  return (
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -252,7 +257,7 @@ export function NetworkStats({ status }: Props) {
             <h3 className="font-semibold">WAN Traffic</h3>
             <span className="text-xs text-text-secondary">{wan.interface}</span>
           </div>
-          <TimeWindowSelector timeWindow={timeWindow} onChange={setTimeWindow} />
+          <TimeWindowSelector timeWindow={timeWindow} onChange={onTimeWindowChange} />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
@@ -312,6 +317,9 @@ export function NetworkStats({ status }: Props) {
           </div>
         </div>
       </div>
-    </div>
   );
 }
+
+// Re-export hook and types for use in App.tsx
+export { useNetHistory, type DataPoint } from '../hooks/useNetHistory';
+export type { TimeWindow };

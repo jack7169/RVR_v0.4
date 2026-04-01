@@ -1537,9 +1537,8 @@ cmd_remove_aircraft() {
             rm -f /etc/kcptun/client.json
             rmdir /etc/kcptun 2>/dev/null || true
             rm -f /usr/bin/tap2tcp
-            uci delete network.@device[0].stp 2>/dev/null || true
-            uci commit network 2>/dev/null || true
-            rm -f /tmp/rvr* /tmp/tap2tcp*
+            ip link set br-lan type bridge stp_state 0 2>/dev/null || true
+            rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
         ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
     else
         echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"
@@ -1636,8 +1635,7 @@ cmd_uninstall() {
     rm -f "$TAP2TCP_BINARY"
 
     echo "[*] Reverting STP on bridge..."
-    uci delete network.@device[0].stp 2>/dev/null || true
-    uci commit network 2>/dev/null || true
+    ip link set br-lan type bridge stp_state 0 2>/dev/null || true
 
     # Clean up aircraft
     if [ -n "$AIRCRAFT_IP" ] && check_aircraft_reachable "$AIRCRAFT_IP" 2>/dev/null; then
@@ -1653,9 +1651,8 @@ cmd_uninstall() {
             rm -f /etc/kcptun/client.json
             rmdir /etc/kcptun 2>/dev/null || true
             rm -f /usr/bin/tap2tcp
-            uci delete network.@device[0].stp 2>/dev/null || true
-            uci commit network 2>/dev/null || true
-            rm -f /tmp/rvr* /tmp/tap2tcp*
+            ip link set br-lan type bridge stp_state 0 2>/dev/null || true
+            rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
         ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
     elif [ -n "$AIRCRAFT_IP" ]; then
         echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"

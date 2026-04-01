@@ -47,31 +47,31 @@ export function Header({ connected, activeTab, onTabChange, onProfileChange, ver
               connected ? 'bg-success' : 'bg-error',
             )} />
             <h1 className="text-lg font-semibold">L2 Bridge</h1>
-            {versionHash && (
-              <div className="flex items-center gap-1.5">
-                <a
-                  href={`${repoUrl}/commit/${versionHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
-                >
-                  <div className={cn(
-                    'w-2 h-2 rounded-full',
-                    version?.update_available ? 'bg-warning' : isDevBranch ? 'bg-accent' : 'bg-success',
-                  )} />
-                  <span className={isDevBranch ? 'text-accent' : undefined}>{branch}</span>:{versionHash}
-                </a>
-                <button
-                  onClick={handleCheckUpdate}
-                  disabled={checking}
-                  className="text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
-                  title="Check for updates"
-                >
-                  <RefreshCw className={cn('w-3 h-3', checking && 'animate-spin')} />
-                </button>
-              </div>
-            )}
           </div>
+          {versionHash && (
+            <div className="flex items-center gap-1.5">
+              <a
+                href={`${repoUrl}/commit/${versionHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <div className={cn(
+                  'w-2 h-2 rounded-full',
+                  version?.update_available ? 'bg-warning' : isDevBranch ? 'bg-accent' : 'bg-success',
+                )} />
+                <span className={isDevBranch ? 'text-accent' : undefined}>{branch}</span>:{versionHash}
+              </a>
+              <button
+                onClick={handleCheckUpdate}
+                disabled={checking}
+                className="text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+                title="Check for updates"
+              >
+                <RefreshCw className={cn('w-3 h-3', checking && 'animate-spin')} />
+              </button>
+            </div>
+          )}
         </div>
 
         <nav className="flex gap-1 -mb-px">

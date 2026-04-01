@@ -1008,22 +1008,28 @@ get_stats_history() {
     BEGIN { printf "{\"points\":["; first=1 }
     {
         t=$1; rx=$2; tx=$3; pkts=$4+$5; errs=$6+$7; drops=$8
+        # WAN fields (columns 9-10, may be absent in old CSV rows)
+        wan_rx=$9+0; wan_tx=$10+0
         # Auto-detect: if timestamp > 10^12, it is milliseconds — convert to seconds
         if (t > 9999999999) { t = int(t / 1000) }
-        if (t+0 < cutoff+0) { prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts; next }
+        if (t+0 < cutoff+0) { prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts; prev_wan_rx=wan_rx; prev_wan_tx=wan_tx; next }
         if (prev_t && t > prev_t) {
             dt = t - prev_t
             rx_rate = (rx - prev_rx) / dt
             tx_rate = (tx - prev_tx) / dt
             pkt_rate = (pkts - prev_pkts) / dt
+            wan_rx_rate = (wan_rx - prev_wan_rx) / dt
+            wan_tx_rate = (wan_tx - prev_wan_tx) / dt
             if (rx_rate < 0) rx_rate = 0
             if (tx_rate < 0) tx_rate = 0
             if (pkt_rate < 0) pkt_rate = 0
+            if (wan_rx_rate < 0) wan_rx_rate = 0
+            if (wan_tx_rate < 0) wan_tx_rate = 0
             if (!first) printf ","
-            printf "{\"t\":%s,\"rx\":%.0f,\"tx\":%.0f,\"pkts\":%.0f}", t * 1000, rx_rate, tx_rate, pkt_rate
+            printf "{\"t\":%s,\"rx\":%.0f,\"tx\":%.0f,\"pkts\":%.0f,\"wan_rx\":%.0f,\"wan_tx\":%.0f}", t * 1000, rx_rate, tx_rate, pkt_rate, wan_rx_rate, wan_tx_rate
             first = 0
         }
-        prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts
+        prev_t=t; prev_rx=rx; prev_tx=tx; prev_pkts=pkts; prev_wan_rx=wan_rx; prev_wan_tx=wan_tx
     }
     END { printf "]}\n" }
     ' "$stats_file"

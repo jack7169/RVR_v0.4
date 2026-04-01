@@ -8,6 +8,8 @@ export interface DataPoint {
   rx: number;
   tx: number;
   pkts: number;
+  wan_rx: number;
+  wan_tx: number;
 }
 
 const MAX_POINTS = 7200; // 6h at ~3s intervals
@@ -20,7 +22,7 @@ function formatTime(ms: number): string {
 export function useNetHistory(status: StatusResponse | null) {
   const historyRef = useRef<DataPoint[]>([]);
   const prevRef = useRef<{
-    t: number; rx: number; tx: number; pkts: number;
+    t: number; rx: number; tx: number; pkts: number; wan_rx: number; wan_tx: number;
   } | null>(null);
   const [revision, setRevision] = useState(0);
   const seededRef = useRef(false);
@@ -37,6 +39,8 @@ export function useNetHistory(status: StatusResponse | null) {
           rx: p.rx,
           tx: p.tx,
           pkts: p.pkts,
+          wan_rx: p.wan_rx ?? 0,
+          wan_tx: p.wan_tx ?? 0,
         }));
         // Prepend server data before any live data already collected
         const liveStart = historyRef.current.length > 0 ? historyRef.current[0].t : Infinity;
@@ -54,6 +58,8 @@ export function useNetHistory(status: StatusResponse | null) {
     const rx = status.network_stats.rvr_bridge.rx_bytes;
     const tx = status.network_stats.rvr_bridge.tx_bytes;
     const pkts = status.network_stats.rvr_bridge.rx_packets + status.network_stats.rvr_bridge.tx_packets;
+    const wan_rx = status.network_stats.wan.rx_bytes;
+    const wan_tx = status.network_stats.wan.tx_bytes;
 
     const prev = prevRef.current;
     if (prev && now > prev.t) {
@@ -65,6 +71,8 @@ export function useNetHistory(status: StatusResponse | null) {
           rx: Math.max(0, (rx - prev.rx) / dt),
           tx: Math.max(0, (tx - prev.tx) / dt),
           pkts: Math.max(0, (pkts - prev.pkts) / dt),
+          wan_rx: Math.max(0, (wan_rx - prev.wan_rx) / dt),
+          wan_tx: Math.max(0, (wan_tx - prev.wan_tx) / dt),
         });
         if (historyRef.current.length > MAX_POINTS) {
           historyRef.current = historyRef.current.slice(-MAX_POINTS);
@@ -72,7 +80,7 @@ export function useNetHistory(status: StatusResponse | null) {
         setRevision(r => r + 1);
       }
     }
-    prevRef.current = { t: now, rx, tx, pkts };
+    prevRef.current = { t: now, rx, tx, pkts, wan_rx, wan_tx };
   }, [status]);
 
   const getWindow = useCallback((seconds: number): DataPoint[] => {
@@ -84,7 +92,7 @@ export function useNetHistory(status: StatusResponse | null) {
 
   const current = (() => {
     const h = historyRef.current;
-    if (h.length === 0) return { rx: 0, tx: 0, pkts: 0 };
+    if (h.length === 0) return { rx: 0, tx: 0, pkts: 0, wan_rx: 0, wan_tx: 0 };
     return h[h.length - 1];
   })();
 

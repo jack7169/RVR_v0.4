@@ -315,20 +315,20 @@ if [ -d "$RVR_B_STATS_DIR" ]; then
     RVR_B_MULTICAST=$(cat "$RVR_B_STATS_DIR/multicast" 2>/dev/null || echo 0)
 fi
 
-# Tailscale interface statistics (for WAN traffic comparison)
-TS_IFACE=$(ip route get 100.64.0.1 2>/dev/null | grep -oE 'dev [^ ]+' | awk '{print $2}' | head -1)
-TS_IFACE="${TS_IFACE:-tailscale0}"
-TS_STATS_DIR="/sys/class/net/$TS_IFACE/statistics"
-TS_RX_BYTES=0
-TS_TX_BYTES=0
-TS_RX_PACKETS=0
-TS_TX_PACKETS=0
+# WAN interface statistics (actual Starlink-facing traffic)
+WAN_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+WAN_IFACE="${WAN_IFACE:-eth0}"
+WAN_STATS_DIR="/sys/class/net/$WAN_IFACE/statistics"
+WAN_RX_BYTES=0
+WAN_TX_BYTES=0
+WAN_RX_PACKETS=0
+WAN_TX_PACKETS=0
 
-if [ -d "$TS_STATS_DIR" ]; then
-    TS_RX_BYTES=$(cat "$TS_STATS_DIR/rx_bytes" 2>/dev/null || echo 0)
-    TS_TX_BYTES=$(cat "$TS_STATS_DIR/tx_bytes" 2>/dev/null || echo 0)
-    TS_RX_PACKETS=$(cat "$TS_STATS_DIR/rx_packets" 2>/dev/null || echo 0)
-    TS_TX_PACKETS=$(cat "$TS_STATS_DIR/tx_packets" 2>/dev/null || echo 0)
+if [ -d "$WAN_STATS_DIR" ]; then
+    WAN_RX_BYTES=$(cat "$WAN_STATS_DIR/rx_bytes" 2>/dev/null || echo 0)
+    WAN_TX_BYTES=$(cat "$WAN_STATS_DIR/tx_bytes" 2>/dev/null || echo 0)
+    WAN_RX_PACKETS=$(cat "$WAN_STATS_DIR/rx_packets" 2>/dev/null || echo 0)
+    WAN_TX_PACKETS=$(cat "$WAN_STATS_DIR/tx_packets" 2>/dev/null || echo 0)
 fi
 
 # Get current timestamp in milliseconds for rate calculation
@@ -342,7 +342,7 @@ STATS_LAST="/tmp/rvr-stats-last"
 NOW_S=$(date +%s)
 LAST_WRITE=$(cat "$STATS_LAST" 2>/dev/null || echo 0)
 if [ $((NOW_S - LAST_WRITE)) -ge 3 ]; then
-    echo "$STATS_TIMESTAMP|$RVR_B_RX_BYTES|$RVR_B_TX_BYTES|$RVR_B_RX_PACKETS|$RVR_B_TX_PACKETS|$RVR_B_RX_ERRORS|$RVR_B_TX_ERRORS|$((RVR_B_RX_DROPPED + RVR_B_TX_DROPPED))" >> "$STATS_HISTORY" 2>/dev/null
+    echo "$STATS_TIMESTAMP|$RVR_B_RX_BYTES|$RVR_B_TX_BYTES|$RVR_B_RX_PACKETS|$RVR_B_TX_PACKETS|$RVR_B_RX_ERRORS|$RVR_B_TX_ERRORS|$((RVR_B_RX_DROPPED + RVR_B_TX_DROPPED))|$WAN_RX_BYTES|$WAN_TX_BYTES" >> "$STATS_HISTORY" 2>/dev/null
     echo "$NOW_S" > "$STATS_LAST"
     # Inline rotation — cap at 8640 lines (~7.2h at 3s throttle)
     if [ "$(wc -l < "$STATS_HISTORY" 2>/dev/null || echo 0)" -gt 8640 ]; then
@@ -499,12 +499,12 @@ cat << EOF
       "tx_dropped": $RVR_B_TX_DROPPED,
       "multicast": $RVR_B_MULTICAST
     },
-    "tailscale": {
-      "interface": "$TS_IFACE",
-      "rx_bytes": $TS_RX_BYTES,
-      "tx_bytes": $TS_TX_BYTES,
-      "rx_packets": $TS_RX_PACKETS,
-      "tx_packets": $TS_TX_PACKETS
+    "wan": {
+      "interface": "$WAN_IFACE",
+      "rx_bytes": $WAN_RX_BYTES,
+      "tx_bytes": $WAN_TX_BYTES,
+      "rx_packets": $WAN_RX_PACKETS,
+      "tx_packets": $WAN_TX_PACKETS
     }
   },
   "internet": {

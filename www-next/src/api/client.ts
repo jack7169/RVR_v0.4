@@ -123,7 +123,7 @@ export async function fetchKcpStats(): Promise<import('./types').KcpStats> {
 }
 
 export interface StatsHistoryResponse {
-  points: Array<{ t: number; rx: number; tx: number; pkts: number }>;
+  points: Array<{ t: number; rx: number; tx: number; pkts: number; wan_rx: number; wan_tx: number }>;
 }
 
 export async function fetchStatsHistory(windowSeconds = 900): Promise<StatsHistoryResponse> {

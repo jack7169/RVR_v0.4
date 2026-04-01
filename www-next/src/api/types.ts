@@ -68,7 +68,7 @@ export interface StatusResponse {
       tx_dropped: number;
       multicast: number;
     };
-    tailscale: {
+    wan: {
       interface: string;
       rx_bytes: number;
       tx_bytes: number;

@@ -11,7 +11,7 @@ echo "Cache-Control: no-cache, max-age=0"
 echo ""
 
 HOSTNAME=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo "unknown")
-VERSION="4.0"
+VERSION="0.4"
 GIT_VERSION=$(cat /etc/rvr/version 2>/dev/null || echo "unknown")
 GIT_BRANCH=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
 

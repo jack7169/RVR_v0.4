@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh - RVR RVR v4.0 installer
+# install.sh - RVR v0.4 installer
 # Run on any fresh OpenWrt device to download, install, and configure RVR.
 #
 # One-liner:
@@ -173,7 +173,7 @@ download_repo() {
         return 0
     fi
 
-    info "Downloading RVR RVR v4.0..."
+    info "Downloading RVR v0.4..."
     local tmp_tar="/tmp/rvr-download.tar.gz"
     rm -f "$tmp_tar"
 
@@ -417,7 +417,7 @@ refresh_packages() {
     kernel=$(uname -r)
 
     cat > "$pkg_dir/manifest.txt" << EOF
-# RVR v4.0 Offline Package Bundle
+# RVR v0.4 Offline Package Bundle
 # Downloaded: $(date +%Y-%m-%d)
 # Source: localhost ($(cat /proc/sys/kernel/hostname 2>/dev/null || echo 'unknown'))
 # Architecture: ${arch:-unknown}
@@ -484,7 +484,7 @@ show_menu() {
     while true; do
         echo ""
         echo "=========================================="
-        echo "  RVR RVR v4.0 Installer"
+        echo "  RVR v0.4 Installer"
         echo "=========================================="
         echo "  Device: $(cat /proc/sys/kernel/hostname 2>/dev/null || echo 'unknown')"
         echo "  Kernel: $(uname -r)"
@@ -547,7 +547,7 @@ show_menu() {
 #############################################
 echo ""
 echo "=========================================="
-echo "  RVR RVR v4.0 Installer"
+echo "  RVR v0.4 Installer"
 echo "=========================================="
 echo ""
 

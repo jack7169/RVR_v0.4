@@ -135,7 +135,7 @@ GitHub Actions: Node 22 for web UI build, aarch64-linux-gnu-gcc for l2tap cross-
 ## Requirements
 
 - OpenWrt 23.05+ on aarch64 (tested: GL.iNet GL-BE3600 "Slate 7", GL-A1300)
-- ~14 MB flash for install (packages + l2tap binary + web UI)
+- ~61 MB flash for install (packages + git + l2tap binary + web UI)
 - WireGuard-based VPN (Tailscale, Headscale, or raw WireGuard)
 - Starlink or other WAN connectivity
 

@@ -13,7 +13,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../www',
+    outDir: process.env.CI ? '../www' : '../dist',
     emptyOutDir: false,
     rollupOptions: {
       output: {

@@ -11,6 +11,7 @@ l2tap/l2tap-aarch64
 # Web UI
 www-next/node_modules/
 www-next/dist/
+/dist/
 
 # Runtime
 *.log

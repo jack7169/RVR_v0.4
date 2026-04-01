@@ -1613,9 +1613,10 @@ cmd_uninstall() {
         if uci get firewall.rvr_webui >/dev/null 2>&1; then
             uci delete firewall.rvr_webui
             uci commit firewall
-            # Do NOT reload firewall here — it triggers a kernel panic in the
-            # tun/QCA PPE driver when kmod-tun is loaded. The rule deletion
-            # takes effect on next boot or next manual firewall reload.
+            # Do NOT reload firewall — on GL-BE3600 with kmod-tun loaded,
+            # firewall reload triggers kernel panic in QCA PPE driver
+            # (tun_register_offload_stats_callback null ptr). Rule deletion
+            # takes effect on next reboot.
         fi
         rm -rf "$WEBUI_ROOT"
         /etc/init.d/uhttpd start 2>/dev/null || true
@@ -1817,12 +1818,11 @@ cmd_webui_remove() {
     if uci get firewall.rvr_webui >/dev/null 2>&1; then
         uci delete firewall.rvr_webui
         uci commit firewall
-        /etc/init.d/firewall reload 2>/dev/null || true
     fi
 
     rm -rf "$WEBUI_ROOT"
     log_info "Aircraft profiles preserved in $WEBUI_CONFIG_DIR"
-    /etc/init.d/uhttpd start
+    /etc/init.d/uhttpd start 2>/dev/null || true
 
     echo "Web UI removed."
 }

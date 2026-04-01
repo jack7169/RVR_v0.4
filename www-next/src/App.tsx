@@ -87,6 +87,7 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         version={status?.version}
+        system={status?.system}
       />
 
       {updateSeen && !bannerDismissed && !suppressBanner && (

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, HardDrive } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { checkUpdate } from '../api/client';
 
@@ -12,14 +12,23 @@ interface VersionInfo {
   update_available: boolean;
 }
 
+interface SystemInfo {
+  overlay_total_kb: number;
+  overlay_used_kb: number;
+  overlay_free_kb: number;
+  mem_total_kb: number;
+  mem_available_kb: number;
+}
+
 interface HeaderProps {
   connected: boolean;
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
   version?: VersionInfo;
+  system?: SystemInfo;
 }
 
-export function Header({ connected, activeTab, onTabChange, version }: HeaderProps) {
+export function Header({ connected, activeTab, onTabChange, version, system }: HeaderProps) {
   const [checking, setChecking] = useState(false);
   const versionHash = version?.current && version.current !== 'unknown' ? version.current : null;
   const branch = version?.branch || 'main';
@@ -49,30 +58,38 @@ export function Header({ connected, activeTab, onTabChange, version }: HeaderPro
             )} />
             <h1 className="text-lg font-semibold">Robust Virtual Radio</h1>
           </div>
-          {versionHash && (
-            <div className="flex items-center gap-1.5">
-              <a
-                href={`${repoUrl}/commit/${versionHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
-              >
-                <div className={cn(
-                  'w-2 h-2 rounded-full',
-                  version?.update_available ? 'bg-warning' : isDevBranch ? 'bg-accent' : 'bg-success',
-                )} />
-                <span className={isDevBranch ? 'text-accent' : undefined}>{branch}</span>:{versionHash}
-              </a>
-              <button
-                onClick={handleCheckUpdate}
-                disabled={checking}
-                className="text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
-                title="Check for updates"
-              >
-                <RefreshCw className={cn('w-3 h-3', checking && 'animate-spin')} />
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {system && system.overlay_total_kb > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-text-secondary" title={`Storage: ${Math.round(system.overlay_used_kb / 1024)}MB / ${Math.round(system.overlay_total_kb / 1024)}MB | RAM: ${Math.round(system.mem_available_kb / 1024)}MB free`}>
+                <HardDrive className="w-3 h-3" />
+                <span>{Math.round(system.overlay_free_kb / 1024)}MB</span>
+              </div>
+            )}
+            {versionHash && (
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={`${repoUrl}/commit/${versionHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <div className={cn(
+                    'w-2 h-2 rounded-full',
+                    version?.update_available ? 'bg-warning' : isDevBranch ? 'bg-accent' : 'bg-success',
+                  )} />
+                  <span className={isDevBranch ? 'text-accent' : undefined}>{branch}</span>:{versionHash}
+                </a>
+                <button
+                  onClick={handleCheckUpdate}
+                  disabled={checking}
+                  className="text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+                  title="Check for updates"
+                >
+                  <RefreshCw className={cn('w-3 h-3', checking && 'animate-spin')} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <nav className="flex gap-1 -mb-px">

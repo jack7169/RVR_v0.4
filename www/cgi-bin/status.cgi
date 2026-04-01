@@ -383,6 +383,13 @@ if [ -f "$CAPTURE_PID_FILE" ]; then
 fi
 [ -f "$CAPTURE_FILE" ] && CAPTURE_FILE_SIZE=$(wc -c < "$CAPTURE_FILE" 2>/dev/null || echo 0)
 
+# Storage info
+OVERLAY_TOTAL=$(df /overlay 2>/dev/null | tail -1 | awk '{print $2}')
+OVERLAY_USED=$(df /overlay 2>/dev/null | tail -1 | awk '{print $3}')
+OVERLAY_FREE=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
+MEM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null)
+MEM_AVAILABLE=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null)
+
 # Version tracking
 VERSION_CURRENT=$(cat /etc/rvr/version 2>/dev/null || echo "unknown")
 VERSION_BRANCH=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
@@ -525,6 +532,13 @@ cat << EOF
     "latest": "$VERSION_LATEST",
     "branch": "$VERSION_BRANCH",
     "update_available": $VERSION_UPDATE
+  },
+  "system": {
+    "overlay_total_kb": ${OVERLAY_TOTAL:-0},
+    "overlay_used_kb": ${OVERLAY_USED:-0},
+    "overlay_free_kb": ${OVERLAY_FREE:-0},
+    "mem_total_kb": ${MEM_TOTAL:-0},
+    "mem_available_kb": ${MEM_AVAILABLE:-0}
   }
 }
 EOF

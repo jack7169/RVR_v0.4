@@ -615,7 +615,7 @@ setup_ssh_keys() {
 
 ssh_aircraft() {
     local ip="$1"; shift
-    dbclient -i "$SSH_KEY" -y root@"$ip" "$@"
+    timeout 120 dbclient -i "$SSH_KEY" -y root@"$ip" "$@"
 }
 
 #############################################
@@ -709,6 +709,8 @@ stop_local_services() {
     nft delete table bridge rvr_filter 2>/dev/null || true
     ip link set rvr_bridge nomaster 2>/dev/null || true
     ip link del rvr 2>/dev/null || true
+    # Revert STP to prevent netifd from tearing down br-lan
+    ip link set br-lan type bridge stp_state 0 2>/dev/null || true
     iptables -D OUTPUT -o br-lan -p udp --dport 41641 -j DROP 2>/dev/null || true
     iptables -D OUTPUT -o br-lan -p udp --sport 41641 -j DROP 2>/dev/null || true
     iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
@@ -853,6 +855,14 @@ for pid in $(pgrep -f "grep.*rvr\|tap2tcp\|kcptun" 2>/dev/null); do
     [ "$ppid" = "1" ] && kill "$pid" 2>/dev/null
 done
 
+# Resource snapshot for diagnosing ~12hr brick pattern
+PROCS=$(ls -d /proc/[0-9]* 2>/dev/null | wc -l)
+FDS=$(find /proc/[0-9]*/fd -maxdepth 0 2>/dev/null | while read d; do ls "$d" 2>/dev/null | wc -l; done | awk '{s+=$1} END {print s+0}')
+MEM_FREE=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)
+TMP_KB=$(df /tmp 2>/dev/null | tail -1 | awk '{print $3}')
+OVERLAY_KB=$(df /overlay 2>/dev/null | tail -1 | awk '{print $3}')
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] resources: procs=$PROCS fds=$FDS mem_free=${MEM_FREE}MB tmp=${TMP_KB}KB overlay=${OVERLAY_KB}KB" >> "$LOG"
+
 /usr/bin/rvr monitor >> "$LOG" 2>&1
 
 [ -f "$LOG" ] && tail -100 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
@@ -961,15 +971,19 @@ cmd_setup() {
         else
             echo "    Aircraft has no RVR CLI — installing via install.sh..."
             local install_url="https://raw.githubusercontent.com/${gcs_repo}/${gcs_branch}/install.sh"
-            if ssh_aircraft "$AIRCRAFT_IP" "wget -qO /tmp/rvr-install.sh '$install_url' && sh /tmp/rvr-install.sh --role aircraft" 2>&1; then
-                echo "    Aircraft installation complete."
-                # Ensure correct branch if not main
-                if [ "$gcs_branch" != "main" ]; then
-                    echo "    Switching aircraft to branch: $gcs_branch..."
-                    ssh_aircraft "$AIRCRAFT_IP" "rvr update --branch $gcs_branch" 2>&1 || true
+            if ssh_aircraft "$AIRCRAFT_IP" "wget -T 10 -qO /tmp/rvr-install.sh '$install_url'" 2>&1; then
+                echo "    Downloaded install.sh, running on aircraft..."
+                if ssh_aircraft "$AIRCRAFT_IP" "sh /tmp/rvr-install.sh --role aircraft --no-webui" 2>&1; then
+                    echo "    Aircraft installation complete."
+                    if [ "$gcs_branch" != "main" ]; then
+                        echo "    Switching aircraft to branch: $gcs_branch..."
+                        ssh_aircraft "$AIRCRAFT_IP" "rvr update --branch $gcs_branch" 2>&1 || true
+                    fi
+                else
+                    log_warn "Aircraft install.sh failed — continuing setup with mismatched version"
                 fi
             else
-                log_warn "Aircraft install failed — continuing setup with mismatched version"
+                log_warn "Aircraft cannot reach GitHub — continuing setup with mismatched version"
             fi
         fi
     fi
@@ -1161,8 +1175,8 @@ INITSCRIPT
 
     /etc/init.d/kcptun-server enable 2>/dev/null
     /etc/init.d/tap2tcp enable 2>/dev/null
-    uci set network.@device[0].stp='1' 2>/dev/null || true
-    uci commit network 2>/dev/null || true
+    # STP is enabled at runtime by tap2tcp-up — do NOT persist via uci commit
+    # which triggers netifd to tear down/rebuild br-lan and can brick the router
 
     echo "[GCS] Setup complete."
 
@@ -1304,7 +1318,6 @@ INITSCRIPT
 chmod +x /etc/init.d/tap2tcp'
 
     ssh_aircraft "$AIRCRAFT_IP" '/etc/init.d/kcptun-client enable 2>/dev/null; /etc/init.d/tap2tcp enable 2>/dev/null'
-    ssh_aircraft "$AIRCRAFT_IP" 'uci set network.@device[0].stp="1" 2>/dev/null || true; uci commit network 2>/dev/null || true'
 
     # Verify aircraft configuration
     echo "[Aircraft] Verifying configuration..."

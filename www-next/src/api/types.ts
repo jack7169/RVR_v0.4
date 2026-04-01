@@ -95,6 +95,13 @@ export interface StatusResponse {
     branch: string;
     update_available: boolean;
   };
+  system?: {
+    overlay_total_kb: number;
+    overlay_used_kb: number;
+    overlay_free_kb: number;
+    mem_total_kb: number;
+    mem_available_kb: number;
+  };
 }
 
 export interface AircraftProfile {

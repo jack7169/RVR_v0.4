@@ -1496,7 +1496,6 @@ cmd_remove_aircraft() {
             rm -f /usr/bin/tap2tcp
             uci delete network.@device[0].stp 2>/dev/null || true
             uci commit network 2>/dev/null || true
-            opkg remove --force-depends kcptun-client kcptun-config kmod-tun 2>/dev/null || true
             rm -f /tmp/rvr* /tmp/tap2tcp*
         ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
     else
@@ -1613,26 +1612,17 @@ cmd_uninstall() {
             rm -f /usr/bin/tap2tcp
             uci delete network.@device[0].stp 2>/dev/null || true
             uci commit network 2>/dev/null || true
-            opkg remove --force-depends kcptun-client kcptun-config kmod-tun 2>/dev/null || true
-            sed -i "/arch aarch64_cortex-a53_neon-vfpv4 /d" /etc/opkg.conf 2>/dev/null || true
-            sed -i "/arch aarch64_cortex-a53 /d" /etc/opkg.conf 2>/dev/null || true
-            sed -i "/arch all /d" /etc/opkg.conf 2>/dev/null || true
-            sed -i "/openwrt_packages/d" /etc/opkg/customfeeds.conf 2>/dev/null || true
             rm -f /tmp/rvr* /tmp/tap2tcp*
         ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
     elif [ -n "$AIRCRAFT_IP" ]; then
         echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"
     fi
 
-    echo "[*] Removing installed packages..."
-    opkg remove --force-depends kcptun-server kcptun-config kmod-tun sshpass \
-        git git-http libcurl4 ca-bundle liblzo2 2>/dev/null || true
-
-    echo "[*] Reverting opkg configuration..."
-    sed -i "/arch aarch64_cortex-a53_neon-vfpv4 /d" /etc/opkg.conf 2>/dev/null || true
-    sed -i "/arch aarch64_cortex-a53 /d" /etc/opkg.conf 2>/dev/null || true
-    sed -i "/arch all /d" /etc/opkg.conf 2>/dev/null || true
-    sed -i "/openwrt_packages/d" /etc/opkg/customfeeds.conf 2>/dev/null || true
+    # NOTE: Do NOT remove opkg packages (kcptun, git, kmod-tun, etc.)
+    # They may be shared dependencies with GL.iNet system packages.
+    # Removing them with --force-depends has bricked routers.
+    # Packages are harmless to leave installed (~17MB).
+    echo "[*] Keeping installed packages (safe uninstall)."
 
     echo "[*] Removing RVR..."
     rm -f /usr/bin/rvr

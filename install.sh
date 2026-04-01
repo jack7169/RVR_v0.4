@@ -342,6 +342,9 @@ setup_git_repo() {
     }
     git checkout -b "$REPO_BRANCH" 2>/dev/null || true
     git reset --hard "origin/$REPO_BRANCH" 2>/dev/null || true
+    # Compact objects to minimize flash usage
+    git reflog expire --expire=now --all 2>/dev/null
+    git gc --prune=all -q 2>/dev/null
     # Save branch for update tracking
     mkdir -p /etc/rvr
     echo "$REPO_BRANCH" > /etc/rvr/branch

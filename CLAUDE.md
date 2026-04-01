@@ -20,10 +20,10 @@ tap2tcp classifies Ethernet frames by asymmetric src+dst MAC pair. Each directio
 tap2tcp/              C proxy source (single-threaded epoll, static musl binary)
 robust_virtual_radio    Main CLI script (POSIX sh, ~2000 lines)
 install.sh          Bootstrap installer for OpenWrt devices
-www/                Built web UI (committed by CI, served by lighttpd :8081)
-www/cgi-bin/        CGI backend (status.cgi, api.cgi, logs.cgi)
+www/                Built web UI (committed by CI, served by uhttpd :8081)
+www/cgi-bin/        CGI backend (status.cgi, api.cgi, logs.cgi, starlink_outages.py)
 www-next/           React 19 + Vite + Tailwind source for web UI
-packages/           Bundled .ipk files + tap2tcp binary for offline install
+packages/           Bundled .ipk files + tap2tcp binary for offline install (~17MB)
 .github/workflows/  CI: cross-compile tap2tcp, build web UI
 ```
 
@@ -44,11 +44,19 @@ cd tap2tcp && make cross    # requires aarch64-linux-musl-gcc
 - Use `dbclient` not `ssh`, dropbear `scp` has no `-O` flag
 - procd init scripts with respawn 3600 5 5 (prevents bootloop)
 - Scripts use `logger -t rvr` for syslog, tee to /tmp for setup logs
+- All git operations MUST use `--depth=1` — full history wastes flash storage
+- NEVER use `uci commit network` for STP — runtime-only via `ip link set`, UCI commit triggers netifd to tear down br-lan which can brick the router
+- NEVER use `opkg remove` — shared system libraries can't be safely removed
+- `ssh_aircraft` wrapper uses `timeout 120` — remote commands must not hang indefinitely
+- Install footprint is ~47MB on /overlay (18MB repo + 17MB packages + git objects + installed pkgs)
 
 ## Conventions
 - `rvr` is the single CLI entry point with subcommands (setup, start, stop, status, etc.)
 - Aircraft profiles stored in /etc/rvr/aircraft.json
 - Health status at /tmp/rvr.health, tap2tcp stats at /tmp/tap2tcp.stats
-- Watchdog runs via cron every minute, boot recovery via rc.local
+- Watchdog runs via cron every minute, logs resource snapshots (procs, FDs, RAM, /tmp, /overlay)
+- Boot recovery via rc.local
 - No authentication in tap2tcp — Tailscale provides WireGuard encryption
 - nftables bridge filter allows only RFC1918/link-local/multicast through bridge
+- Starlink dish outage data fetched via Python + starlink_grpc (shared with Starnav project)
+- Web UI dashboard order: Bridge Traffic → KCPtun Link Quality → WAN Traffic → Starlink Link Quality

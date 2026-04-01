@@ -233,37 +233,62 @@ install_packages() {
     local role="$1"
     local pkg_dir="$INSTALL_DIR/packages"
 
-    if [ ! -d "$pkg_dir/common" ]; then
-        fail "packages/ directory not found in $INSTALL_DIR"
-    fi
+    mkdir -p "$pkg_dir/common" "$pkg_dir/gcs" "$pkg_dir/aircraft"
 
     # Install l2tap binary first
     install_l2tap
 
+    # Check if bundled .ipk files exist
+    local has_bundles=0
+    ls "$pkg_dir/common/"*.ipk >/dev/null 2>&1 && has_bundles=1
+
+    if [ $has_bundles -eq 1 ]; then
+        # Offline install from bundled .ipk files
+        case "$role" in
+            gcs)
+                info "Installing GCS packages from bundles..."
+                opkg install "$pkg_dir/common/"*.ipk "$pkg_dir/gcs/"*.ipk \
+                    --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
+                ;;
+            aircraft)
+                info "Installing Aircraft packages from bundles..."
+                opkg install "$pkg_dir/common/"*.ipk "$pkg_dir/aircraft/"*.ipk \
+                    --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
+                ;;
+        esac
+    else
+        # Online install from opkg feeds
+        info "No bundled .ipk files found, installing from opkg feeds..."
+        ensure_opkg_config
+        opkg update 2>&1 | grep -vE "has no valid architecture" || true
+
+        local pkgs="$COMMON_PKGS"
+        case "$role" in
+            gcs)      pkgs="$pkgs $GCS_PKGS" ;;
+            aircraft) pkgs="$pkgs $AIRCRAFT_PKGS" ;;
+        esac
+
+        for pkg in $pkgs; do
+            info "  Installing $pkg..."
+            opkg install "$pkg" 2>&1 | grep -vE "has no valid architecture|Configuring|already installed" || true
+        done
+    fi
+
+    # Verify critical packages
+    local verify_pkg=""
     case "$role" in
-        gcs)
-            info "Installing GCS packages (common + gcs)..."
-            opkg install "$pkg_dir/common/"*.ipk "$pkg_dir/gcs/"*.ipk \
-                --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
-
-            if [ -x /usr/bin/l2tap ] && command -v kcptun-server >/dev/null 2>&1; then
-                ok "GCS packages installed"
-            else
-                fail "Package verification failed (l2tap or kcptun-server missing)"
-            fi
-            ;;
-        aircraft)
-            info "Installing Aircraft packages (common + aircraft)..."
-            opkg install "$pkg_dir/common/"*.ipk "$pkg_dir/aircraft/"*.ipk \
-                --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
-
-            if [ -x /usr/bin/l2tap ] && command -v kcptun-client >/dev/null 2>&1; then
-                ok "Aircraft packages installed"
-            else
-                fail "Package verification failed (l2tap or kcptun-client missing)"
-            fi
-            ;;
+        gcs)      verify_pkg="kcptun-server" ;;
+        aircraft) verify_pkg="kcptun-client" ;;
     esac
+
+    if [ -x /usr/bin/l2tap ] && command -v "$verify_pkg" >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+        ok "$role packages installed (including git)"
+    else
+        [ -x /usr/bin/l2tap ] || warn "l2tap binary missing"
+        command -v "$verify_pkg" >/dev/null 2>&1 || warn "$verify_pkg missing"
+        command -v git >/dev/null 2>&1 || warn "git missing"
+        fail "Package verification failed — check network and retry"
+    fi
 }
 
 #############################################
@@ -276,17 +301,27 @@ bootstrap_git() {
     fi
 
     info "Git not found after package install, bootstrapping..."
-    local pkg_dir="$INSTALL_DIR/packages/common"
-    opkg install \
-        "$pkg_dir"/zlib_*.ipk \
-        "$pkg_dir"/libopenssl3_*.ipk \
-        "$pkg_dir"/libcurl4_*.ipk \
-        "$pkg_dir"/ca-bundle_*.ipk \
-        "$pkg_dir"/git_*.ipk \
-        "$pkg_dir"/git-http_*.ipk \
-        --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
 
-    command -v git >/dev/null 2>&1 || fail "Git bootstrap failed"
+    # Try bundled .ipk files first
+    local pkg_dir="$INSTALL_DIR/packages/common"
+    if ls "$pkg_dir"/git_*.ipk >/dev/null 2>&1; then
+        opkg install \
+            "$pkg_dir"/zlib_*.ipk \
+            "$pkg_dir"/libopenssl3_*.ipk \
+            "$pkg_dir"/libcurl4_*.ipk \
+            "$pkg_dir"/ca-bundle_*.ipk \
+            "$pkg_dir"/git_*.ipk \
+            "$pkg_dir"/git-http_*.ipk \
+            --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
+    else
+        # Fall back to opkg feeds
+        info "No bundled git .ipk, installing from feeds..."
+        ensure_opkg_config
+        opkg update 2>&1 | grep -vE "has no valid architecture" || true
+        opkg install git git-http 2>&1 | grep -vE "has no valid architecture|Configuring" || true
+    fi
+
+    command -v git >/dev/null 2>&1 || fail "Git bootstrap failed — check network connectivity"
     ok "Git installed"
 }
 

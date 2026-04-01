@@ -1,30 +1,19 @@
-# RVR v4.0 Offline Package Bundle
-# Architecture: aarch64_cortex-a53
+# Kernel: 5.4.213
+# Arch: aarch64_cortex-a53_neon-vfpv4
+# Date: 2026-03-31
 #
-# common/ - shared dependencies (GCS + Aircraft)
-#   l2tap-aarch64 (static binary, ~50KB, not .ipk)
-#   kcptun-config_*.ipk
-#   kmod-tun_*.ipk (kernel-version specific!)
-#   libopenssl3_*.ipk
-#   liblzo2_*.ipk
-#   zlib_*.ipk
-#   git_*.ipk
-#   git-http_*.ipk
-#   libcurl4_*.ipk
-#   ca-bundle_*.ipk
-#
-# gcs/ - GCS-only packages
-#   kcptun-server_*.ipk
-#   sshpass_*.ipk
-#
-# aircraft/ - Aircraft-only packages
-#   kcptun-client_*.ipk
-#
-# NOTE: tinc is NOT included — replaced by l2tap static binary
-#
-# WARNING: kmod-tun is kernel-version specific. If the target router
-# runs a different kernel, kmod-tun may fail to load. Check: uname -r
-#
-# To refresh packages, run on the router:
-#   l2bridge update  (pulls latest from git)
-#   -- or from installer menu: option 5 (Refresh packages)
+# Bundled .ipk packages for offline install on GL.iNet BE3600/A1300
+# Refresh with: install.sh menu option 5 (or opkg download on device)
+
+ca-bundle_20230311-1_all.ipk
+git_2.43.2-1_aarch64_cortex-a53_neon-vfpv4.ipk
+git-http_2.43.2-1_aarch64_cortex-a53_neon-vfpv4.ipk
+kcptun-config_20230207-1_aarch64_cortex-a53_neon-vfpv4.ipk
+kcptun-server_20230207-1_aarch64_cortex-a53_neon-vfpv4.ipk
+kcptun-client_20230207-1_aarch64_cortex-a53_neon-vfpv4.ipk
+kmod-tun_5.4.213-1_aarch64_cortex-a53_neon-vfpv4.ipk
+libcurl4_8.6.0-1_aarch64_cortex-a53_neon-vfpv4.ipk
+liblzo2_2.10-4_aarch64_cortex-a53_neon-vfpv4.ipk
+libopenssl3_3.0.13-1_aarch64_cortex-a53_neon-vfpv4.ipk
+sshpass_1.09-1_aarch64_cortex-a53_neon-vfpv4.ipk
+zlib_1.2.13-1_aarch64_cortex-a53_neon-vfpv4.ipk

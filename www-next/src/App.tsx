@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense, Component, type ReactNode } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -54,6 +54,8 @@ export default function App() {
   // Latch: once we've seen update_available=true, keep showing banner
   // until user dismisses (X button) or post-update reload clears it
   const [updateSeen, setUpdateSeen] = useState<{ latest: string; branch: string } | null>(null);
+  const updateSeenRef = useRef(updateSeen);
+  updateSeenRef.current = updateSeen;
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [suppressBanner, setSuppressBanner] = useState(() => {
     try { return sessionStorage.getItem('update-just-applied') === '1'; } catch { return false; }
@@ -64,11 +66,10 @@ export default function App() {
     const v = status.version;
     if (v.update_available && v.latest) {
       setUpdateSeen({ latest: v.latest, branch: v.branch || 'main' });
-    } else if (updateSeen && !v.update_available && v.latest) {
-      // Server explicitly says no update with a valid latest — clear latch
+    } else if (updateSeenRef.current && !v.update_available && v.latest) {
       setUpdateSeen(null);
     }
-  }, [status, updateSeen]);
+  }, [status]);
 
   // Clear post-update suppression once status confirms no update pending
   useEffect(() => {

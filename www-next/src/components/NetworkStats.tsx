@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
@@ -69,20 +69,25 @@ function TimeWindowSelector({ timeWindow, onChange }: { timeWindow: TimeWindow; 
 
 function useContainerSize(ref: React.RefObject<HTMLDivElement | null>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
-
-  const measure = useCallback(() => {
-    if (!ref.current) return;
-    const { width, height } = ref.current.getBoundingClientRect();
-    if (width > 0 && height > 0) setSize(s => (s.width === Math.floor(width) && s.height === Math.floor(height)) ? s : { width: Math.floor(width), height: Math.floor(height) });
-  }, [ref]);
+  const rafRef = useRef(0);
 
   useEffect(() => {
-    if (!ref.current) return;
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const { width, height } = el.getBoundingClientRect();
+      const w = Math.floor(width);
+      const h = Math.floor(height);
+      if (w > 0 && h > 0) setSize(s => (s.width === w && s.height === h) ? s : { width: w, height: h });
+    };
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, [ref, measure]);
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(measure);
+    });
+    ro.observe(el);
+    return () => { cancelAnimationFrame(rafRef.current); ro.disconnect(); };
+  }, [ref]);
 
   return size;
 }
@@ -172,8 +177,7 @@ export function NetworkStats({ status }: Props) {
     ?? { interface: 'unknown', rx_bytes: 0, tx_bytes: 0, rx_packets: 0, tx_packets: 0 };
   const { bridge_filter } = status;
 
-  void revision;
-  const data = getWindow(timeWindow);
+  const data = useMemo(() => getWindow(timeWindow), [getWindow, timeWindow, revision]);
 
   return (
     <div className="space-y-4">

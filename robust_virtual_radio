@@ -482,7 +482,7 @@ save_aircraft_profile() {
 
     mkdir -p /etc/rvr
 
-    local id=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+    local id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
 
     local created=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
@@ -945,11 +945,21 @@ cmd_setup() {
         ' 2>/dev/null
     fi
 
-    if [ "$aircraft_ver" != "none" ] && [ "$gcs_ver" != "none" ] && [ "$aircraft_ver" != "$gcs_ver" ]; then
-        echo "    Version mismatch: GCS=$gcs_ver Aircraft=$aircraft_ver"
-        echo "    Aircraft will be updated during setup."
+    if [ "$aircraft_ver" = "$gcs_ver" ] && [ "$gcs_ver" != "none" ]; then
+        echo "    Aircraft version: $aircraft_ver (matches GCS)"
     else
-        echo "    Aircraft version: $aircraft_ver"
+        echo "    Version mismatch: GCS=$gcs_ver Aircraft=$aircraft_ver"
+        # Try to update aircraft if it has rvr installed
+        if ssh_aircraft "$AIRCRAFT_IP" "command -v rvr >/dev/null 2>&1" 2>/dev/null; then
+            echo "    Updating aircraft to match GCS..."
+            if ssh_aircraft "$AIRCRAFT_IP" "rvr update" 2>&1; then
+                echo "    Aircraft updated successfully."
+            else
+                log_warn "Aircraft update failed — continuing setup with mismatched version"
+            fi
+        else
+            echo "    Aircraft has no RVR CLI — will be configured during setup."
+        fi
     fi
 
     # Get password from existing profile

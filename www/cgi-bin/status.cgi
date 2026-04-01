@@ -158,8 +158,6 @@ if [ -n "$AIRCRAFT_IP" ]; then
     if [ "$CACHE_VALID" -eq 0 ]; then
     # Quick ping check (1 second timeout)
     if ping -c 1 -W 1 "$AIRCRAFT_IP" >/dev/null 2>&1; then
-        AIRCRAFT_REACHABLE="true"
-
         # Try discovery endpoint first (fast, no SSH overhead)
         DISC_JSON=$(wget -q -T 2 -O- "http://${AIRCRAFT_IP}:8081/cgi-bin/discovery.cgi" 2>/dev/null)
         if [ -n "$DISC_JSON" ]; then
@@ -180,6 +178,11 @@ if [ -n "$AIRCRAFT_IP" ]; then
                 AIRCRAFT_TAP2TCP=$(echo "$REMOTE_STATUS" | awk '{print $2}')
                 AIRCRAFT_IFACE=$(echo "$REMOTE_STATUS" | awk '{print $3}')
             fi
+        fi
+
+        # Reachable = all critical services confirmed running
+        if [ "$AIRCRAFT_KCPTUN" = "running" ] && [ "$AIRCRAFT_TAP2TCP" = "running" ] && [ "$AIRCRAFT_IFACE" = "up" ]; then
+            AIRCRAFT_REACHABLE="true"
         fi
     fi
     # Write cache

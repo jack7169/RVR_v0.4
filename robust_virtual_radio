@@ -1771,23 +1771,15 @@ cmd_uninstall() {
     echo "[*] Removing watchdog..."
     cmd_watchdog_remove 2>/dev/null || true
 
-    # Step 1: Deregister from uhttpd BEFORE touching any files or packages.
-    # Remove our uhttpd instance and firewall rule, then restart uhttpd so it
-    # comes back clean with no knowledge of RVR. Only after uhttpd is healthy
-    # (no longer serving :8081) do we proceed with removing code and packages.
+    # Step 1: Remove our uhttpd instance (config only, all files stay).
+    # Restart uhttpd so it comes back with no knowledge of RVR on :8081.
+    # This stops all CGI polling before we touch any packages.
     echo "[*] Removing RVR from uhttpd..."
     if uci get uhttpd.rvr >/dev/null 2>&1; then
         uci delete uhttpd.rvr
         uci commit uhttpd
     fi
-    if uci get firewall.rvr_webui >/dev/null 2>&1; then
-        local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
-        [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
-        uci delete firewall.rvr_webui
-        uci commit firewall
-    fi
     /etc/init.d/uhttpd restart 2>/dev/null || true
-    # Wait for uhttpd to be healthy — port 8081 should no longer respond
     local wait=0
     while [ $wait -lt 10 ]; do
         wget -q -T 1 -O /dev/null "http://127.0.0.1:8081/" 2>/dev/null || break
@@ -1796,11 +1788,7 @@ cmd_uninstall() {
     done
     echo "    uhttpd restarted (port 8081 removed)"
 
-    # Step 2: Now safe to remove files and packages
-    echo "[*] Removing Web UI files..."
-    rm -rf "$WEBUI_ROOT"
-
-    # Run tap2tcp-down to clean iptables rules
+    # Step 2: Stop bridge services and clean up network state
     echo "[*] Cleaning up iptables rules..."
     [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
 
@@ -1817,6 +1805,19 @@ cmd_uninstall() {
 
     echo "[*] Reverting STP on bridge..."
     ip link set br-lan type bridge stp_state 0 2>/dev/null || true
+
+    # Step 3: Now that bridge is down, safe to remove firewall rule
+    echo "[*] Removing firewall rule..."
+    if uci get firewall.rvr_webui >/dev/null 2>&1; then
+        local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
+        [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
+        uci delete firewall.rvr_webui
+        uci commit firewall
+    fi
+
+    # Step 4: Remove web UI files
+    echo "[*] Removing Web UI files..."
+    rm -rf "$WEBUI_ROOT"
 
     # Clean up aircraft
     if [ -n "$AIRCRAFT_IP" ] && check_aircraft_reachable "$AIRCRAFT_IP" 2>/dev/null; then

@@ -17,14 +17,16 @@ tap2tcp classifies Ethernet frames by asymmetric src+dst MAC pair. Each directio
 
 ## Directory Layout
 ```
-tap2tcp/              C proxy source (single-threaded epoll, static musl binary)
-robust_virtual_radio    Main CLI script (POSIX sh, ~2000 lines)
-install.sh          Bootstrap installer for OpenWrt devices
-www/                Built web UI (committed by CI, served by uhttpd :8081)
-www/cgi-bin/        CGI backend (status.cgi, api.cgi, logs.cgi, starlink_outages.py)
-www-next/           React 19 + Vite + Tailwind source for web UI
-packages/           Bundled .ipk files + tap2tcp binary for offline install (~17MB)
-.github/workflows/  CI: cross-compile tap2tcp, build web UI
+tap2tcp/                C proxy source (single-threaded epoll, static musl binary)
+robust_virtual_radio    Main CLI script (POSIX sh, ~2300 lines)
+install.sh              Bootstrap installer for OpenWrt devices
+www/                    Built web UI (committed by CI, served by uhttpd :8081)
+www/cgi-bin/            CGI backend (status.cgi, api.cgi, logs.cgi, starlink_outages.py)
+www-next/               React 19 + Vite + Tailwind source for web UI
+packages/               Bundled .ipk files + tap2tcp binary for offline install
+starlink-grpc-tools/    Bundled starlink_grpc.py for Starlink dish API
+docs/                   Bridge firewall rules, known issues
+.github/workflows/      CI: cross-compile tap2tcp, build web UI
 ```
 
 ## Building tap2tcp
@@ -45,18 +47,25 @@ cd tap2tcp && make cross    # requires aarch64-linux-musl-gcc
 - procd init scripts with respawn 3600 5 5 (prevents bootloop)
 - Scripts use `logger -t rvr` for syslog, tee to /tmp for setup logs
 - All git operations MUST use `--depth=1` — full history wastes flash storage
-- NEVER use `uci commit network` for STP — runtime-only via `ip link set`, UCI commit triggers netifd to tear down br-lan which can brick the router
-- NEVER use `opkg remove` — shared system libraries can't be safely removed
+- NEVER use `uci commit network` — triggers netifd to tear down br-lan, bricks the router
+- NEVER use `/etc/init.d/firewall reload` during uninstall — kernel panic in QCA PPE/tun driver
+- NEVER use `--force-depends` with opkg remove — breaks shared GL.iNet system libraries
+- NEVER remove kmod-tun, libopenssl3, libcurl4, zlib, ca-bundle, liblzo2 via opkg
 - `ssh_aircraft` wrapper uses `timeout 120` — remote commands must not hang indefinitely
-- Install footprint is ~47MB on /overlay (18MB repo + 17MB packages + git objects + installed pkgs)
+- Uninstall must remove uhttpd config + restart + kill orphaned CGI processes BEFORE removing any packages (Python segfault from grpcio removal crashes GL-BE3600)
+- Install footprint is ~85MB on /overlay (repo + packages + Python + pip packages)
+- STP is runtime-only (`ip link set stp_state 1`) — never persisted via UCI
 
 ## Conventions
-- `rvr` is the single CLI entry point with subcommands (setup, start, stop, status, etc.)
+- `rvr` is the single CLI entry point with subcommands (setup, start, stop, status, profile, unbind, etc.)
+- CLI is the single source of truth — api.cgi delegates to CLI via `run_rvr_command()`
+- Profile management: `rvr profile list|add|update|delete|set-active` (api.cgi delegates here)
 - Aircraft profiles stored in /etc/rvr/aircraft.json
 - Health status at /tmp/rvr.health, tap2tcp stats at /tmp/tap2tcp.stats
 - Watchdog runs via cron every minute, logs resource snapshots (procs, FDs, RAM, /tmp, /overlay)
 - Boot recovery via rc.local
 - No authentication in tap2tcp — Tailscale provides WireGuard encryption
-- nftables bridge filter allows only RFC1918/link-local/multicast through bridge
+- Bridge firewall: 3 layers of loop prevention (see docs/bridge-firewall-rules.md)
 - Starlink dish outage data fetched via Python + starlink_grpc (shared with Starnav project)
 - Web UI dashboard order: Bridge Traffic → KCPtun Link Quality → WAN Traffic → Starlink Link Quality
+- Uninstall order: deregister uhttpd → stop services → remove watchdog → remove config → remove packages → remove files

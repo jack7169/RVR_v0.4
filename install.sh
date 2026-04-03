@@ -286,10 +286,23 @@ install_packages() {
     if [ -x /usr/bin/tap2tcp ] && command -v "$verify_pkg" >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
         ok "$role packages installed (including git)"
     else
-        [ -x /usr/bin/tap2tcp ] || warn "tap2tcp binary missing"
-        command -v "$verify_pkg" >/dev/null 2>&1 || warn "$verify_pkg missing"
-        command -v git >/dev/null 2>&1 || warn "git missing"
-        fail "Package verification failed — check network and retry"
+        # Partial uninstall may have removed binaries while opkg metadata
+        # still shows "installed". Force reinstall from bundles.
+        warn "Some packages missing — forcing reinstall..."
+        [ -x /usr/bin/tap2tcp ] || install_tap2tcp
+        if [ $has_bundles -eq 1 ]; then
+            opkg install --force-reinstall "$pkg_dir/common/"*.ipk "$pkg_dir/$role/"*.ipk \
+                --force-depends 2>&1 | grep -vE "has no valid architecture|Configuring" || true
+        fi
+        # Re-verify
+        if [ -x /usr/bin/tap2tcp ] && command -v "$verify_pkg" >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+            ok "$role packages installed (forced reinstall)"
+        else
+            [ -x /usr/bin/tap2tcp ] || warn "tap2tcp binary missing"
+            command -v "$verify_pkg" >/dev/null 2>&1 || warn "$verify_pkg missing"
+            command -v git >/dev/null 2>&1 || warn "git missing"
+            fail "Package verification failed — check network and retry"
+        fi
     fi
 }
 

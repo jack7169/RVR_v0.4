@@ -1771,24 +1771,24 @@ cmd_uninstall() {
     echo "[*] Removing watchdog..."
     cmd_watchdog_remove 2>/dev/null || true
 
-    # Remove Web UI if installed
+    # Remove Web UI FIRST — kill our :8081 server before touching any packages.
+    # CGI polls (status.cgi, starlink_outages.py) must not run during pip/opkg
+    # removal. If Python libraries are removed while a CGI process is importing
+    # them, the resulting segfault crashes the system.
     if [ -d "$WEBUI_ROOT" ] || uci get uhttpd.rvr >/dev/null 2>&1; then
         echo "[*] Removing Web UI..."
-        /etc/init.d/uhttpd stop 2>/dev/null || true
         if uci get uhttpd.rvr >/dev/null 2>&1; then
             uci delete uhttpd.rvr
             uci commit uhttpd
         fi
         if uci get firewall.rvr_webui >/dev/null 2>&1; then
-            # Remove from running nftables directly (no full firewall reload —
-            # reload triggers kernel panic in QCA PPE/tun driver on GL-BE3600)
             local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
             [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
             uci delete firewall.rvr_webui
             uci commit firewall
         fi
         rm -rf "$WEBUI_ROOT"
-        /etc/init.d/uhttpd start 2>/dev/null || true
+        /etc/init.d/uhttpd restart 2>/dev/null || true
     fi
 
     # Run tap2tcp-down to clean iptables rules

@@ -1771,25 +1771,34 @@ cmd_uninstall() {
     echo "[*] Removing watchdog..."
     cmd_watchdog_remove 2>/dev/null || true
 
-    # Remove Web UI FIRST — kill our :8081 server before touching any packages.
-    # CGI polls (status.cgi, starlink_outages.py) must not run during pip/opkg
-    # removal. If Python libraries are removed while a CGI process is importing
-    # them, the resulting segfault crashes the system.
-    if [ -d "$WEBUI_ROOT" ] || uci get uhttpd.rvr >/dev/null 2>&1; then
-        echo "[*] Removing Web UI..."
-        if uci get uhttpd.rvr >/dev/null 2>&1; then
-            uci delete uhttpd.rvr
-            uci commit uhttpd
-        fi
-        if uci get firewall.rvr_webui >/dev/null 2>&1; then
-            local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
-            [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
-            uci delete firewall.rvr_webui
-            uci commit firewall
-        fi
-        rm -rf "$WEBUI_ROOT"
-        /etc/init.d/uhttpd restart 2>/dev/null || true
+    # Step 1: Deregister from uhttpd BEFORE touching any files or packages.
+    # Remove our uhttpd instance and firewall rule, then restart uhttpd so it
+    # comes back clean with no knowledge of RVR. Only after uhttpd is healthy
+    # (no longer serving :8081) do we proceed with removing code and packages.
+    echo "[*] Removing RVR from uhttpd..."
+    if uci get uhttpd.rvr >/dev/null 2>&1; then
+        uci delete uhttpd.rvr
+        uci commit uhttpd
     fi
+    if uci get firewall.rvr_webui >/dev/null 2>&1; then
+        local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
+        [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
+        uci delete firewall.rvr_webui
+        uci commit firewall
+    fi
+    /etc/init.d/uhttpd restart 2>/dev/null || true
+    # Wait for uhttpd to be healthy — port 8081 should no longer respond
+    local wait=0
+    while [ $wait -lt 10 ]; do
+        wget -q -T 1 -O /dev/null "http://127.0.0.1:8081/" 2>/dev/null || break
+        sleep 1
+        wait=$((wait + 1))
+    done
+    echo "    uhttpd restarted (port 8081 removed)"
+
+    # Step 2: Now safe to remove files and packages
+    echo "[*] Removing Web UI files..."
+    rm -rf "$WEBUI_ROOT"
 
     # Run tap2tcp-down to clean iptables rules
     echo "[*] Cleaning up iptables rules..."

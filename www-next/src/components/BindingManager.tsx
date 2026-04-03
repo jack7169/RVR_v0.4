@@ -15,6 +15,7 @@ import { cn, formatBytes } from '../lib/utils';
 
 interface Props {
   onRefresh: () => void;
+  bridgeConnected: boolean;
 }
 
 type Filter = 'all' | 'online' | 'unbound';
@@ -537,7 +538,7 @@ function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
 
 // ── Main Binding Manager ──────────────────────────────────────────────
 
-export function BindingManager({ onRefresh }: Props) {
+export function BindingManager({ onRefresh, bridgeConnected }: Props) {
   const [discovery, setDiscovery] = useState<PeerDiscovery | null>(null);
   const [profiles, setProfiles] = useState<AircraftProfiles | null>(null);
   const [filter, setFilter] = useState<Filter>('online');
@@ -730,7 +731,8 @@ export function BindingManager({ onRefresh }: Props) {
           const activeProfile = profiles.profiles[profiles.active];
           const aircraftPeer = discovery?.peers.find(p => p.ip === activeProfile.tailscale_ip);
           const selfPeer = discovery?.self;
-          const isOnline = aircraftPeer?.connection_mode === 'online';
+          const peerOnline = aircraftPeer?.connection_mode === 'online';
+          const isLinked = bridgeConnected;
 
           return (
             <div>
@@ -759,30 +761,30 @@ export function BindingManager({ onRefresh }: Props) {
                 <div className="flex flex-col items-center gap-1 px-2">
                   <div className={cn(
                     'w-16 h-0.5 rounded-full',
-                    isOnline ? 'bg-success' : 'bg-error/50',
+                    isLinked ? 'bg-success' : 'bg-error/50',
                   )} />
                   <span className={cn(
                     'text-[10px] font-medium',
-                    isOnline ? 'text-success' : 'text-error',
+                    isLinked ? 'text-success' : 'text-error',
                   )}>
-                    {isOnline ? 'LINKED' : 'DOWN'}
+                    {isLinked ? 'LINKED' : 'DOWN'}
                   </span>
                   <div className={cn(
                     'w-16 h-0.5 rounded-full',
-                    isOnline ? 'bg-success' : 'bg-error/50',
+                    isLinked ? 'bg-success' : 'bg-error/50',
                   )} />
                 </div>
 
                 {/* Aircraft side */}
                 <div className="bg-bg-primary rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={cn('w-2.5 h-2.5 rounded-full', isOnline ? 'bg-success' : 'bg-error/50')} />
+                    <span className={cn('w-2.5 h-2.5 rounded-full', peerOnline ? 'bg-success' : 'bg-error/50')} />
                     <span className="font-medium text-sm">{activeProfile.name}</span>
                     <Badge variant="neutral">Aircraft</Badge>
                   </div>
                   <div className="text-xs font-mono text-text-secondary">{activeProfile.tailscale_ip}</div>
                   <div className="flex items-center justify-between mt-1">
-                    <span className={cn('text-xs', isOnline ? 'text-success' : 'text-error')}>
+                    <span className={cn('text-xs', peerOnline ? 'text-success' : 'text-error')}>
                       {aircraftPeer?.connection_mode || 'unknown'}
                     </span>
                     {aircraftPeer?.git_version && aircraftPeer.git_version !== 'unknown' && (

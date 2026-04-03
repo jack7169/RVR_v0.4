@@ -183,7 +183,7 @@ export default function App() {
 
         {activeTab === 'binding' && (
           <Suspense fallback={<Skeleton height="h-96" />}>
-            <BindingManager onRefresh={refresh} />
+            <BindingManager onRefresh={refresh} bridgeConnected={status?.connection.established ?? false} />
           </Suspense>
         )}
 

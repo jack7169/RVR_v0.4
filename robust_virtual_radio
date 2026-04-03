@@ -1743,141 +1743,99 @@ cmd_remove_aircraft() {
 }
 
 cmd_uninstall() {
-    local AIRCRAFT_IP=$(get_aircraft_ip "$1")
     local script_dir=$(dirname "$(readlink -f "$0")")
+    local do_aircraft=0
+
+    # Parse flags
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --aircraft) do_aircraft=1; shift ;;
+            *) shift ;;
+        esac
+    done
 
     echo ""
     echo "This will completely remove RVR and all configuration."
     echo ""
-    echo "The following will be removed:"
-    echo "  - RVR services, configs, and init scripts"
-    echo "  - Watchdog and auto-start entries"
-    [ -d "$WEBUI_ROOT" ] && echo "  - Web UI ($WEBUI_ROOT, uhttpd config, firewall rule)"
-    echo "  - Installed packages (kcptun, sshpass, git, etc.)"
-    echo "  - tap2tcp binary"
-    [ -n "$AIRCRAFT_IP" ] && echo "  - Aircraft configuration on $AIRCRAFT_IP (if reachable)"
-    echo "  - Repository ($script_dir)"
-    echo "  - /usr/bin/rvr symlink"
-    echo ""
     printf "Continue? [y/N] "
     read confirm
     [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && { echo "Aborted."; exit 0; }
-
     echo ""
 
-    echo "[*] Stopping services..."
-    cmd_stop_internal "$AIRCRAFT_IP" 2>/dev/null || true
+    # Phase 1: Isolate from uhttpd — remove config, restart, wait healthy.
+    #          Uses cmd_webui_remove which handles uhttpd + firewall + files.
+    #          After this, :8081 is gone. No more CGI polls can run.
+    echo "[1/6] Removing web UI..."
+    cmd_webui_remove 2>/dev/null || true
 
-    echo "[*] Removing watchdog..."
+    # Phase 2: Stop RVR services top-down (tap2tcp → kcptun → bridge → STP)
+    echo "[2/6] Stopping services..."
+    stop_local_services 2>/dev/null || true
+
+    # Phase 3: Remove cron/boot entries
+    echo "[3/6] Removing watchdog..."
     cmd_watchdog_remove 2>/dev/null || true
 
-    # Step 1: Remove our uhttpd instance (config only, all files stay).
-    # Restart uhttpd so it comes back with no knowledge of RVR on :8081.
-    # This stops all CGI polling before we touch any packages.
-    echo "[*] Removing RVR from uhttpd..."
-    if uci get uhttpd.rvr >/dev/null 2>&1; then
-        uci delete uhttpd.rvr
-        uci commit uhttpd
-    fi
-    /etc/init.d/uhttpd restart 2>/dev/null || true
-    local wait=0
-    while [ $wait -lt 10 ]; do
-        wget -q -T 1 -O /dev/null "http://127.0.0.1:8081/" 2>/dev/null || break
-        sleep 1
-        wait=$((wait + 1))
-    done
-    echo "    uhttpd restarted (port 8081 removed)"
-
-    # Step 2: Stop bridge services and clean up network state
-    echo "[*] Cleaning up iptables rules..."
-    [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
-
-    echo "[*] Removing GCS service configuration..."
+    # Phase 4: Remove config and init scripts
+    echo "[4/6] Removing configuration..."
     /etc/init.d/kcptun-server disable 2>/dev/null || true
     /etc/init.d/tap2tcp disable 2>/dev/null || true
     rm -f /etc/init.d/kcptun-server /etc/init.d/tap2tcp
-
     rm -rf /etc/rvr
     rm -f /etc/kcptun/server.json
     rmdir /etc/kcptun 2>/dev/null || true
     rm -f "$STATE_FILE" "$HEALTH_FILE"
     rm -f "$TAP2TCP_BINARY"
 
-    echo "[*] Reverting STP on bridge..."
-    ip link set br-lan type bridge stp_state 0 2>/dev/null || true
-
-    # Step 3: Now that bridge is down, safe to remove firewall rule
-    echo "[*] Removing firewall rule..."
-    if uci get firewall.rvr_webui >/dev/null 2>&1; then
-        local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
-        [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
-        uci delete firewall.rvr_webui
-        uci commit firewall
-    fi
-
-    # Step 4: Remove web UI files
-    echo "[*] Removing Web UI files..."
-    rm -rf "$WEBUI_ROOT"
-
-    # Clean up aircraft
-    if [ -n "$AIRCRAFT_IP" ] && check_aircraft_reachable "$AIRCRAFT_IP" 2>/dev/null; then
-        echo "[*] Cleaning up aircraft ($AIRCRAFT_IP)..."
-        ssh_aircraft "$AIRCRAFT_IP" '
-            /etc/init.d/kcptun-client stop 2>/dev/null || true
-            /etc/init.d/tap2tcp stop 2>/dev/null || true
-            [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
-            /etc/init.d/kcptun-client disable 2>/dev/null || true
-            /etc/init.d/tap2tcp disable 2>/dev/null || true
-            rm -f /etc/init.d/kcptun-client /etc/init.d/tap2tcp
-            rm -rf /etc/rvr
-            rm -f /etc/kcptun/client.json
-            rmdir /etc/kcptun 2>/dev/null || true
-            rm -f /usr/bin/tap2tcp
-            ip link set br-lan type bridge stp_state 0 2>/dev/null || true
-            rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
-        ' 2>/dev/null || log_warn "Aircraft cleanup failed (may need manual cleanup)"
-    elif [ -n "$AIRCRAFT_IP" ]; then
-        echo "[!] Aircraft $AIRCRAFT_IP unreachable - skipping remote cleanup"
-    fi
-
-    # Remove pip packages first (before removing python3)
+    # Phase 5: Remove packages top-down (applications → runtimes → libraries)
+    echo "[5/6] Removing packages..."
+    # pip packages first (while python3 still exists)
     if command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1; then
-        echo "[*] Removing Python pip packages..."
         python3 -m pip uninstall -y grpcio grpcio-reflection protobuf yagrc typing-extensions pip setuptools wheel 2>/dev/null || true
     fi
-
-    # Remove opkg packages we installed.
-    # CRITICAL safety rules:
-    #   - NEVER use --force-depends (breaks shared system libs)
-    #   - NEVER remove: libopenssl3, libcurl4, zlib, ca-bundle, liblzo2
-    #     (dozens of GL.iNet system packages depend on these)
-    #   - NEVER remove: kmod-tun (tailscale, openvpn, zerotier depend on it)
-    #   - Only remove packages with no system reverse dependencies
-    echo "[*] Removing installed packages..."
-    # Remove in dependency order (dependents first)
+    # opkg: applications first, then runtimes, then libraries
     for pkg in \
-        sshpass \
-        kcptun-server kcptun-client kcptun-config \
-        git-http git \
-        python3 python3-base python3-light python3-asyncio python3-email \
-        python3-cgi python3-pydoc python3-cgitb python3-codecs python3-ctypes \
-        python3-dbm python3-decimal python3-distutils python3-logging \
+        kcptun-server kcptun-client sshpass \
+        kcptun-config git-http git \
+        python3 \
+        python3-asyncio python3-cgi python3-cgitb python3-codecs python3-ctypes \
+        python3-dbm python3-decimal python3-distutils python3-email python3-logging \
         python3-lzma python3-multiprocessing python3-ncurses python3-openssl \
-        python3-readline python3-sqlite3 python3-unittest python3-urllib \
-        python3-uuid python3-xml \
+        python3-pydoc python3-readline python3-sqlite3 python3-unittest python3-urllib \
+        python3-uuid python3-xml python3-light python3-base \
         libpython3-3.11 libffi libgdbm \
     ; do
         opkg remove "$pkg" 2>/dev/null || true
     done
 
-    echo "[*] Removing RVR..."
+    # Phase 6: Remove files
+    echo "[6/6] Removing files..."
     rm -f /usr/bin/rvr
-
     rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
+    [ -d "$script_dir" ] && rm -rf "$script_dir"
 
-    if [ -d "$script_dir" ]; then
-        echo "[*] Removing repository ($script_dir)..."
-        rm -rf "$script_dir"
+    # Aircraft cleanup only if explicitly requested
+    if [ $do_aircraft -eq 1 ]; then
+        local AIRCRAFT_IP=$(get_aircraft_ip 2>/dev/null)
+        if [ -n "$AIRCRAFT_IP" ] && check_aircraft_reachable "$AIRCRAFT_IP" 2>/dev/null; then
+            echo "[*] Cleaning up aircraft ($AIRCRAFT_IP)..."
+            ssh_aircraft "$AIRCRAFT_IP" '
+                /etc/init.d/tap2tcp stop 2>/dev/null || true
+                /etc/init.d/kcptun-client stop 2>/dev/null || true
+                [ -x /etc/rvr/tap2tcp-down ] && /etc/rvr/tap2tcp-down 2>/dev/null || true
+                /etc/init.d/kcptun-client disable 2>/dev/null || true
+                /etc/init.d/tap2tcp disable 2>/dev/null || true
+                rm -f /etc/init.d/kcptun-client /etc/init.d/tap2tcp
+                rm -rf /etc/rvr
+                rm -f /etc/kcptun/client.json
+                rmdir /etc/kcptun 2>/dev/null || true
+                rm -f /usr/bin/tap2tcp
+                ip link set br-lan type bridge stp_state 0 2>/dev/null || true
+                rm -rf /tmp/rvr /tmp/rvr.* /tmp/rvr-* /tmp/tap2tcp*
+            ' 2>/dev/null || log_warn "Aircraft cleanup failed"
+        else
+            echo "[!] Aircraft unreachable — skipping"
+        fi
     fi
 
     echo ""
@@ -1987,13 +1945,24 @@ cmd_webui_install() {
 cmd_webui_remove() {
     log_info "Removing RVR Web UI..."
 
-    /etc/init.d/uhttpd stop 2>/dev/null || true
-
+    # 1. Remove uhttpd config (no files deleted yet)
     if uci get uhttpd.rvr >/dev/null 2>&1; then
         uci delete uhttpd.rvr
         uci commit uhttpd
     fi
 
+    # 2. Restart uhttpd — comes back clean, :8081 gone, GL admin unaffected
+    /etc/init.d/uhttpd restart 2>/dev/null || true
+
+    # 3. Wait for uhttpd to be running
+    local i=0
+    while [ $i -lt 10 ]; do
+        /etc/init.d/uhttpd running 2>/dev/null && break
+        sleep 1
+        i=$((i + 1))
+    done
+
+    # 4. Remove firewall rule from running nftables + UCI
     if uci get firewall.rvr_webui >/dev/null 2>&1; then
         local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
         [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true
@@ -2001,9 +1970,9 @@ cmd_webui_remove() {
         uci commit firewall
     fi
 
+    # 5. Remove web UI files
     rm -rf "$WEBUI_ROOT"
     log_info "Aircraft profiles preserved in $WEBUI_CONFIG_DIR"
-    /etc/init.d/uhttpd start 2>/dev/null || true
 
     echo "Web UI removed."
 }

@@ -365,7 +365,7 @@ bind_aircraft_action() {
     fi
 
     # Generate profile ID
-    local id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^-a-z0-9_]/-/g; s/--*/-/g; s/^-//; s/-$//')
+    local id=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed 's/[^-a-z0-9_]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
 
     # Check if SSH key auth already works (no password needed)

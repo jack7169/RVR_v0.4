@@ -227,7 +227,7 @@ ensure_packages_remote() {
         [ -x /usr/bin/tap2tcp ] && l=1
         command -v kcptun-client >/dev/null 2>&1 && k=1
         echo "${l}${k}"
-    ' 2>/dev/null | tr -d '[:space:]')
+    ' 2>/dev/null | tr -d ' \t\n\r')
     if [ "$remote_check" = "11" ]; then
         echo "    Packages already installed on aircraft."
         return 0
@@ -487,7 +487,7 @@ save_aircraft_profile() {
     if [ -n "$explicit_id" ]; then
         id="$explicit_id"
     else
-        id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^-a-z0-9_]/-/g; s/--*/-/g; s/^-//; s/-$//')
+        id=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed 's/[^-a-z0-9_]/-/g; s/--*/-/g; s/^-//; s/-$//')
         [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
     fi
 
@@ -935,7 +935,7 @@ cmd_setup() {
 
     # Version compatibility check
     echo "[*] Checking aircraft version..."
-    local aircraft_ver=$(ssh_aircraft "$AIRCRAFT_IP" "cat /etc/rvr/version 2>/dev/null || cat /etc/l2bridge/version 2>/dev/null || echo 'none'" 2>/dev/null | tr -d '[:space:]')
+    local aircraft_ver=$(ssh_aircraft "$AIRCRAFT_IP" "cat /etc/rvr/version 2>/dev/null || cat /etc/l2bridge/version 2>/dev/null || echo 'none'" 2>/dev/null | tr -d ' \t\n\r')
     local gcs_ver=$(cat /etc/rvr/version 2>/dev/null || echo 'none')
 
     # Detect pre-rename install (old l2bridge/l2tap binaries or config)
@@ -946,7 +946,7 @@ cmd_setup() {
         [ -f /usr/bin/l2tap ] && old=yes
         [ -f /etc/init.d/l2tap ] && old=yes
         echo $old
-    ' 2>/dev/null | tr -d '[:space:]')
+    ' 2>/dev/null | tr -d ' \t\n\r')
     if [ "$aircraft_has_old" = "yes" ]; then
         echo "    Aircraft has old l2bridge/l2tap install — cleaning..."
         ssh_aircraft "$AIRCRAFT_IP" '
@@ -995,7 +995,7 @@ cmd_setup() {
 
         # Re-check version after update attempt
         local aircraft_ver_new=$(ssh_aircraft "$AIRCRAFT_IP" \
-            "cat /etc/rvr/version 2>/dev/null || echo 'none'" 2>/dev/null | tr -d '[:space:]')
+            "cat /etc/rvr/version 2>/dev/null || echo 'none'" 2>/dev/null | tr -d ' \t\n\r')
         if [ "$aircraft_ver_new" = "$gcs_ver" ] && [ "$gcs_ver" != "none" ]; then
             echo "    Aircraft version after update: $aircraft_ver_new (matches GCS)"
         elif [ "$aircraft_ver" != "$aircraft_ver_new" ]; then

@@ -1962,7 +1962,14 @@ cmd_webui_remove() {
         i=$((i + 1))
     done
 
-    # 4. Remove firewall rule from running nftables + UCI
+    # 4. Kill orphaned CGI children (starlink_outages.py imports grpcio native
+    #    lib with 10s gRPC timeout — if pip removes grpcio while this process
+    #    is still running, the segfault crashes the GL-BE3600)
+    pkill -f "python3.*starlink_outages" 2>/dev/null || true
+    pkill -f "starlink_outages.py" 2>/dev/null || true
+    sleep 1
+
+    # 5. Remove firewall rule from running nftables + UCI
     if uci get firewall.rvr_webui >/dev/null 2>&1; then
         local handle=$(nft -an list chain inet fw4 input_lan 2>/dev/null | grep "Allow-RVR-WebUI" | grep -o 'handle [0-9]*' | awk '{print $2}')
         [ -n "$handle" ] && nft delete rule inet fw4 input_lan handle "$handle" 2>/dev/null || true

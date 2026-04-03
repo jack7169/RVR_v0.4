@@ -547,12 +547,16 @@ export function BindingManager({ onRefresh }: Props) {
   const [manualIp, setManualIp] = useState('');
   const [settingsKey, setSettingsKey] = useState(0);
   const { toast } = useToast();
+  const skipDiscoveryUntil = useRef(0);
 
   const loadData = useCallback(async () => {
     try {
-      const [disc, profs] = await Promise.all([discoverPeers(), listAircraft()]);
-      setDiscovery(disc);
+      const profs = await listAircraft();
       setProfiles(profs);
+      // Skip discovery overwrite while optimistic update is fresh
+      if (Date.now() < skipDiscoveryUntil.current) return;
+      const disc = await discoverPeers();
+      setDiscovery(disc);
     } catch {
       // May fail if services not running
     } finally {
@@ -601,8 +605,8 @@ export function BindingManager({ onRefresh }: Props) {
       // Reload profiles (aircraft list) but keep discovery optimistic
       const profs = await listAircraft();
       setProfiles(profs);
-      // Optimistically clear is_bound on the matching peer
-      // (discovery cache is stale until next background scan)
+      // Optimistically clear is_bound on the matching peer and suppress
+      // discovery polling for 30s while backend rebuilds its cache
       if (unboundIp && discovery) {
         setDiscovery({
           ...discovery,
@@ -612,6 +616,7 @@ export function BindingManager({ onRefresh }: Props) {
               : p
           ),
         });
+        skipDiscoveryUntil.current = Date.now() + 30_000;
       }
       onRefresh();
     } catch {

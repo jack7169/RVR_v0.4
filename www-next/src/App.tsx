@@ -108,12 +108,15 @@ export default function App() {
     }
   }, [status]);
 
-  // Clear post-update suppression once status confirms no update pending
+  // Clear post-update suppression on first status poll.
+  // If no update pending: update succeeded, clear updateSeen too.
+  // If update still pending: new update or failed — let banner show.
   useEffect(() => {
-    if (suppressBanner && status && !status.version.update_available) {
-      setSuppressBanner(false);
+    if (!suppressBanner || !status) return;
+    setSuppressBanner(false);
+    try { sessionStorage.removeItem('update-just-applied'); } catch {}
+    if (!status.version.update_available) {
       setUpdateSeen(null);
-      try { sessionStorage.removeItem('update-just-applied'); } catch {}
     }
   }, [suppressBanner, status]);
 

@@ -478,12 +478,18 @@ save_aircraft_ip() {
 save_aircraft_profile() {
     local name="$1"
     local ip="$2"
+    local explicit_id="${3:-}"
     local aircraft_file="/etc/rvr/aircraft.json"
 
     mkdir -p /etc/rvr
 
-    local id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
-    [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
+    local id
+    if [ -n "$explicit_id" ]; then
+        id="$explicit_id"
+    else
+        id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^-a-z0-9_]/-/g; s/--*/-/g; s/^-//; s/-$//')
+        [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
+    fi
 
     local created=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
 
@@ -964,7 +970,7 @@ cmd_setup() {
         if ssh_aircraft "$AIRCRAFT_IP" "command -v rvr >/dev/null 2>&1" 2>/dev/null; then
             echo "    Updating aircraft via rvr update (branch: $gcs_branch)..."
             if ssh_aircraft "$AIRCRAFT_IP" "rvr update --branch $gcs_branch" 2>&1; then
-                echo "    Aircraft updated successfully."
+                echo "    Update command completed."
             else
                 log_warn "Aircraft update failed — continuing setup with mismatched version"
             fi
@@ -985,6 +991,18 @@ cmd_setup() {
             else
                 log_warn "Aircraft cannot reach GitHub — continuing setup with mismatched version"
             fi
+        fi
+
+        # Re-check version after update attempt
+        local aircraft_ver_new=$(ssh_aircraft "$AIRCRAFT_IP" \
+            "cat /etc/rvr/version 2>/dev/null || echo 'none'" 2>/dev/null | tr -d '[:space:]')
+        if [ "$aircraft_ver_new" = "$gcs_ver" ] && [ "$gcs_ver" != "none" ]; then
+            echo "    Aircraft version after update: $aircraft_ver_new (matches GCS)"
+        elif [ "$aircraft_ver" != "$aircraft_ver_new" ]; then
+            log_warn "Aircraft version changed ($aircraft_ver -> $aircraft_ver_new) but doesn't match GCS ($gcs_ver)"
+        else
+            log_warn "Aircraft version unchanged after update: $aircraft_ver_new (GCS: $gcs_ver)"
+            log_warn "Update may have failed — bridge may not function correctly"
         fi
     fi
 
@@ -1345,6 +1363,7 @@ chmod +x /etc/init.d/tap2tcp'
     cmd_start_internal "$AIRCRAFT_IP"
 
     wait_for_bridge
+    local bridge_ok=$?
 
     # Post-start verification
     echo ""
@@ -1397,6 +1416,8 @@ chmod +x /etc/init.d/tap2tcp'
     echo ""
 
     cmd_status
+    [ $bridge_ok -ne 0 ] && return 1
+    return 0
 }
 
 #############################################
@@ -1521,7 +1542,7 @@ cmd_profile() {
         add)
             local id="$1" name="$2" ip="$3" password="${4:-}"
             [ -z "$id" ] || [ -z "$name" ] || [ -z "$ip" ] && { echo "Usage: rvr profile add <id> <name> <ip> [password]"; exit 1; }
-            save_aircraft_profile "$name" "$ip"
+            save_aircraft_profile "$name" "$ip" "$id"
             # Update password if provided
             if [ -n "$password" ] && [ -f "$aircraft_file" ]; then
                 local safe_pass=$(printf '%s' "$password" | sed 's/[&/\]/\\&/g')
@@ -2035,6 +2056,7 @@ cmd_update() {
     local new_hash=$(git rev-parse --short "origin/$branch" 2>/dev/null)
     if [ "$old_hash" = "$new_hash" ] && [ "$(cat "$WEBUI_CONFIG_DIR/branch" 2>/dev/null)" = "$branch" ]; then
         echo "  Already up to date ($old_hash on $branch)"
+        rm -f /tmp/rvr-latest-version
         return 0
     fi
 

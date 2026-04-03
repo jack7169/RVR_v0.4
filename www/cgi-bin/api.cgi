@@ -365,7 +365,7 @@ bind_aircraft_action() {
     fi
 
     # Generate profile ID
-    local id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+    local id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^-a-z0-9_]/-/g; s/--*/-/g; s/^-//; s/-$//')
     [ -z "$id" ] && id="aircraft-$(echo "$ip" | tr '.' '-')"
 
     # Check if SSH key auth already works (no password needed)
@@ -403,6 +403,9 @@ unbind_aircraft_action() {
 
     # Delegate to CLI — handles stop, aircraft cleanup, profile deletion
     "$RVR_BIN" unbind "$id" > /dev/null 2>&1 || true
+
+    # Invalidate discovery cache so next poll rebuilds with fresh bound status
+    rm -f "$DISCOVERY_CACHE"
 
     json_response "{\"success\": true, \"message\": \"Aircraft unbound\"}"
 }

@@ -396,6 +396,7 @@ VERSION_BRANCH=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
 VERSION_LATEST=""
 VERSION_UPDATE="false"
 REPO_PATH=$(cat /etc/rvr/repo 2>/dev/null || echo "")
+[ -z "$REPO_PATH" ] && REPO_PATH="jack7169/RVR_v0.4"
 
 if [ -n "$REPO_PATH" ] && [ "$VERSION_CURRENT" != "unknown" ]; then
     CACHE_FILE="/tmp/rvr-latest-version"

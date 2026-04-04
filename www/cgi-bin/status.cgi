@@ -152,6 +152,11 @@ if [ -n "$AIRCRAFT_IP" ]; then
             AIRCRAFT_KCPTUN=$(sed -n '3p' "$REMOTE_CACHE")
             AIRCRAFT_TAP2TCP=$(sed -n '4p' "$REMOTE_CACHE")
             AIRCRAFT_IFACE=$(sed -n '5p' "$REMOTE_CACHE")
+            # Invalidate if local bridge is up but cached remote says down
+            # (bridge came up after cache was written — stale data)
+            if [ "$IFACE_STATUS" = "up" ] && [ "$AIRCRAFT_IFACE" = "down" ]; then
+                CACHE_VALID=0
+            fi
         fi
     fi
 

@@ -8,11 +8,21 @@ Outputs JSON compatible with the RVR OutagePanel format.
 """
 
 import json
+import signal
 import sys
 import time
 
 DISH_ADDRESS = "192.168.100.1:9200"
 TIMEOUT = 5  # seconds for gRPC call
+
+
+class _GrpcTimeout(Exception):
+    pass
+
+
+def _alarm_handler(signum, frame):
+    raise _GrpcTimeout("gRPC call timed out")
+
 
 try:
     import starlink_grpc
@@ -24,9 +34,15 @@ except ImportError:
 def get_outages(window_seconds=3600):
     """Fetch dish history and convert drop samples into outage events."""
     try:
+        signal.signal(signal.SIGALRM, _alarm_handler)
+        signal.alarm(TIMEOUT)
         ctx = starlink_grpc.ChannelContext(target=DISH_ADDRESS)
         history = starlink_grpc.get_history(context=ctx)
+        signal.alarm(0)
+    except _GrpcTimeout:
+        return {"available": False, "error": "Dish unreachable (timeout)"}
     except Exception as e:
+        signal.alarm(0)
         return {"available": False, "error": f"Dish unreachable: {e}"}
 
     try:
@@ -193,5 +209,8 @@ if __name__ == "__main__":
             window = int(sys.argv[1])
         except ValueError:
             pass
-    result = get_outages(window)
+    try:
+        result = get_outages(window)
+    except Exception as e:
+        result = {"available": False, "error": f"Unexpected error: {e}"}
     json.dump(result, sys.stdout)

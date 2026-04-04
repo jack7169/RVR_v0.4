@@ -404,8 +404,9 @@ unbind_aircraft_action() {
     # Delegate to CLI — handles stop, aircraft cleanup, profile deletion
     "$RVR_BIN" unbind "$id" > /dev/null 2>&1 || true
 
-    # Invalidate discovery cache so next poll rebuilds with fresh bound status
+    # Invalidate discovery cache and rebuild immediately
     rm -f "$DISCOVERY_CACHE"
+    run_discovery_scan >/dev/null 2>&1 &
 
     json_response "{\"success\": true, \"message\": \"Aircraft unbound\"}"
 }
@@ -1231,6 +1232,7 @@ update_local_action() {
         "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
         local rc=$?
         rm -f "$DISCOVERY_CACHE"
+        run_discovery_scan >/dev/null 2>&1 &
         echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
     ) >> /tmp/rvr-setup.log 2>&1 &
 
@@ -1254,6 +1256,7 @@ update_remote_action() {
         _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
         local rc=$?
         rm -f "$DISCOVERY_CACHE"
+        run_discovery_scan >/dev/null 2>&1 &
         echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
     ) >> /tmp/rvr-setup.log 2>&1 &
 

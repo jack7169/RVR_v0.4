@@ -871,19 +871,6 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] resources: procs=$PROCS fds=$FDS mem_free=$
 
 /usr/bin/rvr monitor >> "$LOG" 2>&1
 
-# Collect Starlink history (extends dish's 15-min buffer to 24h)
-STARLINK_COLLECTOR=""
-for d in /www/rvr/cgi-bin /root/RVR_v0.4/www/cgi-bin; do
-    [ -f "$d/starlink_collector.py" ] && { STARLINK_COLLECTOR="$d/starlink_collector.py"; break; }
-done
-if [ -n "$STARLINK_COLLECTOR" ] && command -v python3 >/dev/null 2>&1; then
-    GRPC_TOOLS=""
-    for d in /root/RVR_v0.4/starlink-grpc-tools /opt/starnav/starlink-grpc-tools; do
-        [ -f "$d/starlink_grpc.py" ] && { GRPC_TOOLS="$d"; break; }
-    done
-    [ -n "$GRPC_TOOLS" ] && PYTHONPATH="$GRPC_TOOLS" timeout 8 python3 "$STARLINK_COLLECTOR" 2>/dev/null
-fi
-
 [ -f "$LOG" ] && tail -100 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 WATCHDOG
     chmod +x /etc/rvr-watchdog.sh

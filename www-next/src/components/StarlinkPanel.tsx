@@ -5,16 +5,45 @@ import type { StarlinkOutageResponse, StarlinkOutageEvent } from '../api/types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
 
-function formatDurationShort(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+function formatDuration(seconds: number): string {
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+const CAUSE_LABELS: Record<string, string> = {
+  UNKNOWN: 'Unknown',
+  BOOTING: 'Booting',
+  STOWED: 'Stowed',
+  THERMAL_SHUTDOWN: 'Thermal',
+  NO_SCHEDULE: 'No schedule',
+  NO_SATS: 'No satellites',
+  OBSTRUCTED: 'Obstructed',
+  NO_DOWNLINK: 'No downlink',
+  NO_PINGS: 'Network issue',
+  ACTUATOR_ACTIVITY: 'Repositioning',
+  CABLE_TEST: 'Cable test',
+  SLEEPING: 'Sleeping',
+  SKY_SEARCH: 'Searching',
+  INHIBIT_RF: 'RF inhibited',
+};
+
+function causeBadgeColor(cause: string): string {
+  switch (cause) {
+    case 'OBSTRUCTED': return 'text-orange-400';
+    case 'NO_SATS': case 'NO_DOWNLINK': case 'NO_SCHEDULE': return 'text-yellow-400';
+    case 'BOOTING': case 'ACTUATOR_ACTIVITY': case 'SKY_SEARCH': return 'text-blue-400';
+    case 'THERMAL_SHUTDOWN': return 'text-red-400';
+    case 'NO_PINGS': return 'text-error';
+    default: return 'text-text-secondary';
+  }
 }
 
 function DropTimeline({ outages, windowSeconds }: { outages: StarlinkOutageEvent[]; windowSeconds: number }) {
   const now = Math.floor(Date.now() / 1000);
   const start = now - windowSeconds;
-  const segments: { pct: number; type: 'ok' | 'drop' | 'recovery' }[] = [];
+  const segments: { pct: number; type: 'ok' | 'drop' }[] = [];
 
   let cursor = start;
   const relevant = outages.filter(o => o.end > start).sort((a, b) => a.start - b.start);
@@ -25,8 +54,10 @@ function DropTimeline({ outages, windowSeconds }: { outages: StarlinkOutageEvent
     if (oStart > cursor) {
       segments.push({ pct: (oStart - cursor) / windowSeconds * 100, type: 'ok' });
     }
-    segments.push({ pct: (oEnd - oStart) / windowSeconds * 100, type: o.type === 'drop' ? 'drop' : 'recovery' });
-    cursor = oEnd;
+    if (oEnd > oStart) {
+      segments.push({ pct: Math.max((oEnd - oStart) / windowSeconds * 100, 0.3), type: 'drop' });
+    }
+    cursor = Math.max(cursor, oEnd);
   }
   if (cursor < now) {
     segments.push({ pct: (now - cursor) / windowSeconds * 100, type: 'ok' });
@@ -40,8 +71,8 @@ function DropTimeline({ outages, windowSeconds }: { outages: StarlinkOutageEvent
         segments.map((seg, i) => (
           <div
             key={i}
-            style={{ width: `${Math.max(seg.pct, 0.5)}%` }}
-            className={seg.type === 'drop' ? 'bg-error/60' : seg.type === 'recovery' ? 'bg-warning/40' : 'bg-success/20'}
+            style={{ width: `${seg.pct}%` }}
+            className={seg.type === 'drop' ? 'bg-error/60' : 'bg-success/20'}
           />
         ))
       )}
@@ -93,7 +124,7 @@ export function StarlinkPanel() {
             </span>
           ) : summary.total_drops > 0 ? (
             <span className="flex items-center gap-1 text-xs text-warning">
-              <Wifi className="w-3 h-3" /> {summary.total_drops} drops
+              <Wifi className="w-3 h-3" /> {summary.total_drops} event{summary.total_drops !== 1 ? 's' : ''}
             </span>
           ) : (
             <span className="flex items-center gap-1 text-xs text-success">
@@ -122,7 +153,7 @@ export function StarlinkPanel() {
       </div>
 
       {/* Summary tiles */}
-      <div className="grid grid-cols-5 gap-px bg-border/50">
+      <div className="grid grid-cols-4 gap-px bg-border/50">
         <div className="bg-bg-card p-3 text-center">
           <div className={cn('text-xl font-bold', summary.uptime_pct >= 99.9 ? 'text-success' : summary.uptime_pct >= 99 ? 'text-warning' : 'text-error')}>
             {summary.uptime_pct.toFixed(1)}%
@@ -133,7 +164,7 @@ export function StarlinkPanel() {
           <div className={cn('text-xl font-bold', summary.total_drops > 0 ? 'text-error' : 'text-text-primary')}>
             {summary.total_drops}
           </div>
-          <div className="text-[10px] text-error">Drop Events</div>
+          <div className="text-[10px] text-text-secondary">Events</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
           <div className="text-xl font-bold text-text-primary">
@@ -143,13 +174,9 @@ export function StarlinkPanel() {
         </div>
         <div className="bg-bg-card p-3 text-center">
           <div className={cn('text-xl font-bold', summary.total_seconds_down > 0 ? 'text-warning' : 'text-text-primary')}>
-            {summary.total_seconds_down > 0 ? formatDurationShort(summary.total_seconds_down) : '0s'}
+            {summary.total_seconds_down > 0 ? formatDuration(summary.total_seconds_down) : '0s'}
           </div>
-          <div className="text-[10px] text-warning">Downtime</div>
-        </div>
-        <div className="bg-bg-card p-3 text-center">
-          <div className="text-xl font-bold text-text-primary">{summary.total_recoveries}</div>
-          <div className="text-[10px] text-text-secondary">Recoveries</div>
+          <div className="text-[10px] text-text-secondary">Downtime</div>
         </div>
       </div>
 
@@ -157,7 +184,7 @@ export function StarlinkPanel() {
       <div className="px-4 py-3">
         <DropTimeline outages={outages} windowSeconds={window} />
         <div className="flex justify-between text-[10px] text-text-secondary mt-1">
-          <span>{formatDurationShort(window)} ago</span>
+          <span>{formatDuration(window)} ago</span>
           <span>Now</span>
         </div>
       </div>
@@ -166,23 +193,23 @@ export function StarlinkPanel() {
       {windowOutages.length > 0 && (
         <div className="border-t border-border">
           <div className="px-4 py-2 text-xs text-text-secondary">Recent Events</div>
-          <div className="max-h-32 overflow-y-auto">
-            {windowOutages.filter(o => o.type === 'drop').slice().reverse().map((o, i) => (
+          <div className="max-h-40 overflow-y-auto">
+            {windowOutages.slice().reverse().map((o, i) => (
               <div key={i} className="flex items-center justify-between px-4 py-1.5 text-xs border-t border-border/50">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-3 h-3 flex-shrink-0 text-error" />
-                  <span className="font-medium text-error">DROP</span>
+                  <span className={cn('font-medium', causeBadgeColor(o.cause))}>
+                    {CAUSE_LABELS[o.cause] || o.cause}
+                  </span>
                   <span className="text-text-secondary">
                     {formatDistanceToNow(o.start * 1000, { addSuffix: true })}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 text-text-secondary">
+                <div className="flex items-center gap-2 text-text-secondary">
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {formatDurationShort(o.duration_seconds)}
+                    {formatDuration(o.duration_seconds)}
                   </span>
-                  {o.cause && <span className="text-warning">{o.cause}</span>}
-                  <span className="text-error">{Math.round(o.drop_rate * 100)}% loss</span>
                 </div>
               </div>
             ))}

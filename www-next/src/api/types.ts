@@ -213,12 +213,12 @@ export interface OutageResponse {
 }
 
 export interface StarlinkOutageEvent {
-  type: 'drop' | 'recovery';
+  type: 'drop';
   cause: string;
   start: number;
   end: number;
   duration_seconds: number;
-  drop_rate: number;
+  did_switch: boolean;
 }
 
 export interface StarlinkOutageResponse {

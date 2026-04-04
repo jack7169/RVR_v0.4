@@ -8,12 +8,15 @@ Outputs JSON compatible with the RVR OutagePanel format.
 """
 
 import json
+import os
 import signal
 import sys
 import time
 
 DISH_ADDRESS = "192.168.100.1:9200"
 TIMEOUT = 5  # seconds for gRPC call
+HISTORY_FILE = "/tmp/starlink-history.json"
+CURRENT_FILE = "/tmp/starlink-current.json"
 
 
 class _GrpcTimeout(Exception):
@@ -88,7 +91,7 @@ def get_outages(window_seconds=3600):
             except (AttributeError, IndexError, TypeError):
                 pass
 
-        is_drop = drop_rate >= 0.5  # >50% packet loss = drop
+        is_drop = drop_rate >= 0.02  # >2% packet loss = drop
 
         if is_drop and not in_drop:
             # Drop starts
@@ -202,6 +205,51 @@ def _empty_summary():
     }
 
 
+def get_accumulated(window_seconds=3600):
+    """Read accumulated history from collector + live current state."""
+    now = time.time()
+    cutoff = now - window_seconds
+
+    # Read accumulated events
+    events = []
+    if os.path.exists(HISTORY_FILE):
+        try:
+            all_events = json.load(open(HISTORY_FILE))
+            events = [e for e in all_events if e.get("end", 0) > cutoff]
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Read current state
+    current = {"connected": False, "latency_ms": 0}
+    avg_latency = 0
+    if os.path.exists(CURRENT_FILE):
+        try:
+            cur = json.load(open(CURRENT_FILE))
+            current = {"connected": cur.get("connected", False), "latency_ms": cur.get("latency_ms", 0)}
+            avg_latency = cur.get("avg_latency_ms", 0)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    drop_events = [e for e in events if e["type"] == "drop"]
+    recovery_events = [e for e in events if e["type"] == "recovery"]
+    total_drop_seconds = sum(e.get("duration_seconds", 0) for e in drop_events)
+    uptime_pct = ((window_seconds - total_drop_seconds) / window_seconds * 100) if window_seconds else 100
+    uptime_pct = max(0, min(100, uptime_pct))
+
+    return {
+        "available": True,
+        "outages": events,
+        "summary": {
+            "total_drops": len(drop_events),
+            "total_recoveries": len(recovery_events),
+            "uptime_pct": round(uptime_pct, 2),
+            "avg_latency_ms": avg_latency,
+            "total_seconds_down": total_drop_seconds,
+        },
+        "current": current,
+    }
+
+
 if __name__ == "__main__":
     window = 3600
     if len(sys.argv) > 1:
@@ -210,7 +258,16 @@ if __name__ == "__main__":
         except ValueError:
             pass
     try:
-        result = get_outages(window)
+        # Use accumulated history if collector is running, otherwise fall back to live query
+        if os.path.exists(HISTORY_FILE) and os.path.exists(CURRENT_FILE):
+            # Check collector freshness (should update every 60s)
+            current_age = time.time() - os.path.getmtime(CURRENT_FILE)
+            if current_age < 120:
+                result = get_accumulated(window)
+            else:
+                result = get_outages(window)
+        else:
+            result = get_outages(window)
     except Exception as e:
         result = {"available": False, "error": f"Unexpected error: {e}"}
     json.dump(result, sys.stdout)

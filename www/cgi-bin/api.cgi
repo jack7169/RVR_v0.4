@@ -734,7 +734,17 @@ get_starlink_outages() {
         exit 0
     fi
 
-    PYTHONPATH="$grpc_tools:${PYTHONPATH:-}" timeout 10 python3 "$script_dir/starlink_outages.py" "$window" 2>/dev/null || \
+    local outage_script=""
+    for d in "$script_dir" /root/RVR_v0.4/www/cgi-bin; do
+        [ -f "$d/starlink_outages.py" ] && { outage_script="$d/starlink_outages.py"; break; }
+    done
+
+    if [ -z "$outage_script" ]; then
+        printf '{"available":false,"error":"starlink_outages.py not found"}\n'
+        exit 0
+    fi
+
+    PYTHONPATH="$grpc_tools:${PYTHONPATH:-}" timeout 10 python3 "$outage_script" "$window" 2>/dev/null || \
         printf '{"available":false,"error":"query failed"}\n'
     exit 0
 }

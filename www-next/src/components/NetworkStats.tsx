@@ -276,19 +276,6 @@ export function WanTrafficPanel({ status, data, current, timeWindow, onTimeWindo
             sub={`${formatPackets(wan.rx_packets)} rx / ${formatPackets(wan.tx_packets)} tx`}
             color="bg-amber-500/10"
           />
-          <StatTile
-            icon={<Radio className="w-4 h-4 text-emerald-400" />}
-            label="Overhead"
-            value={(() => {
-              const bridgeTotal = current.rx + current.tx;
-              const wanTotal = current.wan_rx + current.wan_tx;
-              if (bridgeTotal === 0 || wanTotal === 0) return '—';
-              const ratio = ((wanTotal - bridgeTotal) / bridgeTotal) * 100;
-              return `${ratio > 0 ? '+' : ''}${ratio.toFixed(0)}%`;
-            })()}
-            sub="WAN vs Bridge"
-            color="bg-emerald-500/10"
-          />
         </div>
 
         <div className="px-4 pb-2">

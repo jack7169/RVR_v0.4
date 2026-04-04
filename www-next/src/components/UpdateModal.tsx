@@ -100,7 +100,7 @@ export function UpdateModal({ open, onClose, status }: Props) {
   const isBranchSwitch = selectedBranch !== currentBranch;
 
   return (
-    <Modal open={open} onClose={phase === 'running' ? () => {} : onClose} title="Update RVR" wide>
+    <Modal open={open} onClose={onClose} title="Update RVR" wide>
       {phase === 'select' && (
         <div className="space-y-4">
           <div className="text-sm space-y-1">
@@ -195,6 +195,11 @@ export function UpdateModal({ open, onClose, status }: Props) {
             {log}
             <div ref={logEndRef} />
           </pre>
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          </div>
         </div>
       )}
 

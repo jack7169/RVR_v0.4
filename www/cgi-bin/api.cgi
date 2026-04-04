@@ -1229,7 +1229,9 @@ update_local_action() {
     (
         echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..."
         "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
-        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/rvr-setup.log
+        local rc=$?
+        rm -f "$DISCOVERY_CACHE"
+        echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
     ) >> /tmp/rvr-setup.log 2>&1 &
 
     json_response '{"success": true, "message": "Update started", "log_file": "/tmp/rvr-setup.log"}'
@@ -1250,7 +1252,9 @@ update_remote_action() {
     (
         echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..."
         _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
-        echo "[UPDATE COMPLETE] exit_code=$?" >> /tmp/rvr-setup.log
+        local rc=$?
+        rm -f "$DISCOVERY_CACHE"
+        echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
     ) >> /tmp/rvr-setup.log 2>&1 &
 
     json_response '{"success": true, "message": "Remote update started", "log_file": "/tmp/rvr-setup.log"}'

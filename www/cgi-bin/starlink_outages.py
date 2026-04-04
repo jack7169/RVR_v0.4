@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Query Starlink dish for outage history and output JSON.
 
-Called by api.cgi. Expects starlink_grpc on PYTHONPATH
-(set by api.cgi from starlink-grpc-tools).
+Called by api.cgi. Expects starlink_grpc on PYTHONPATH.
 
 Reads structured outage events directly from the dish's history.outages
-array — the same data source the Starlink app uses. Each event has a
-cause enum, nanosecond-precision duration, and GPS-epoch timestamp.
+array — the same data source the Starlink app uses. Results are cached
+to /tmp for 30s to avoid repeated gRPC calls on every poll/window switch.
 """
 
 import json
+import os
 import signal
 import sys
 import time
 
 DISH_ADDRESS = "192.168.100.1:9200"
-TIMEOUT = 5  # seconds for gRPC call
-GPS_EPOCH_OFFSET = 315964800  # seconds between GPS epoch and Unix epoch
+TIMEOUT = 5
+GPS_EPOCH_OFFSET = 315964800
+CACHE_FILE = "/tmp/starlink-outages-cache.json"
+CACHE_TTL = 30  # seconds
 
 CAUSE_NAMES = {
     0: "UNKNOWN",
@@ -51,9 +53,8 @@ except ImportError:
     sys.exit(0)
 
 
-def get_outages(window_seconds=3600):
-    """Fetch dish outage history and current state."""
-    # gRPC call with hard timeout (reflection can hang indefinitely)
+def _fetch_from_dish():
+    """Fetch all outages + current state from dish via gRPC. Returns cache dict or error dict."""
     try:
         signal.signal(signal.SIGALRM, _alarm_handler)
         signal.alarm(TIMEOUT)
@@ -67,67 +68,28 @@ def get_outages(window_seconds=3600):
         return {"available": False, "error": "Dish unreachable: %s" % e}
 
     now = time.time()
-    cutoff = now - window_seconds
 
-    # Read structured outage events from dish
-    events = []
-    total_down_s = 0.0
+    # Convert all outage events
+    outages = []
     try:
         for o in history.outages:
             start_unix = o.start_timestamp_ns / 1e9 + GPS_EPOCH_OFFSET
             duration_s = o.duration_ns / 1e9
-            end_unix = start_unix + duration_s
-
-            # Skip events outside requested window
-            if end_unix < cutoff:
-                continue
-
-            cause_int = int(o.cause)
-            events.append({
+            outages.append({
                 "type": "drop",
-                "cause": CAUSE_NAMES.get(cause_int, "UNKNOWN"),
+                "cause": CAUSE_NAMES.get(int(o.cause), "UNKNOWN"),
                 "start": round(start_unix, 1),
-                "end": round(end_unix, 1),
+                "end": round(start_unix + duration_s, 1),
                 "duration_seconds": round(duration_s, 2),
                 "did_switch": bool(o.did_switch),
             })
-            # Only count time within the window for uptime calc
-            effective_start = max(start_unix, cutoff)
-            effective_end = min(end_unix, now)
-            if effective_end > effective_start:
-                total_down_s += effective_end - effective_start
     except (AttributeError, TypeError):
-        pass  # No outages field — dish may be too old
+        pass
 
-    # Sort by start time
-    events.sort(key=lambda e: e["start"])
+    outages.sort(key=lambda e: e["start"])
 
-    # Compute uptime
-    uptime_pct = ((window_seconds - total_down_s) / window_seconds * 100) if window_seconds else 100
-    uptime_pct = max(0.0, min(100.0, uptime_pct))
-
-    # Average latency from ring buffer (last 900 samples)
-    avg_latency = _avg_latency(history)
-
-    # Current state from latest sample
-    current = _current_state(history)
-
-    return {
-        "available": True,
-        "outages": events,
-        "summary": {
-            "total_drops": len(events),
-            "total_recoveries": len(events),  # each drop has an implicit recovery
-            "uptime_pct": round(uptime_pct, 2),
-            "avg_latency_ms": avg_latency,
-            "total_seconds_down": round(total_down_s, 1),
-        },
-        "current": current,
-    }
-
-
-def _avg_latency(history):
-    """Compute average latency from the ring buffer samples."""
+    # Average latency from ring buffer
+    avg_latency = 0
     try:
         total = 0.0
         count = 0
@@ -135,29 +97,93 @@ def _avg_latency(history):
             if lat and lat > 0:
                 total += lat
                 count += 1
-        return round(total / count, 1) if count else 0
+        if count:
+            avg_latency = round(total / count, 1)
     except (AttributeError, TypeError):
-        return 0
+        pass
 
-
-def _current_state(history):
-    """Get current dish state from latest sample."""
+    # Current state
+    current = {"connected": False, "latency_ms": 0}
     try:
-        current = int(history.current)
+        cur = int(history.current)
         samples = len(history.pop_ping_drop_rate)
-        latest_idx = (current - 1) % samples
-        drop = history.pop_ping_drop_rate[latest_idx]
-        latency = 0
+        idx = (cur - 1) % samples
+        drop = history.pop_ping_drop_rate[idx]
+        lat = 0
         try:
-            latency = history.pop_ping_latency_ms[latest_idx]
+            lat = history.pop_ping_latency_ms[idx]
         except (AttributeError, IndexError, TypeError):
             pass
-        return {
-            "connected": drop < 0.5,
-            "latency_ms": round(latency, 1) if latency else 0,
-        }
+        current = {"connected": drop < 0.5, "latency_ms": round(lat, 1) if lat else 0}
     except (AttributeError, TypeError, IndexError):
-        return {"connected": False, "latency_ms": 0}
+        pass
+
+    return {
+        "available": True,
+        "timestamp": now,
+        "outages": outages,
+        "avg_latency_ms": avg_latency,
+        "current": current,
+    }
+
+
+def _get_cached():
+    """Return cached dish data if fresh, otherwise fetch and cache."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            age = time.time() - os.path.getmtime(CACHE_FILE)
+            if age < CACHE_TTL:
+                with open(CACHE_FILE) as f:
+                    data = json.load(f)
+                if data.get("available"):
+                    return data
+        except (json.JSONDecodeError, IOError, OSError):
+            pass
+
+    data = _fetch_from_dish()
+    if data.get("available"):
+        try:
+            tmp = CACHE_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(data, f)
+            os.rename(tmp, CACHE_FILE)
+        except IOError:
+            pass
+    return data
+
+
+def _filter_window(data, window_seconds):
+    """Filter cached data to a specific time window and compute summary."""
+    if not data.get("available"):
+        return data
+
+    now = time.time()
+    cutoff = now - window_seconds
+
+    events = [o for o in data["outages"] if o["end"] > cutoff]
+
+    total_down_s = 0.0
+    for o in events:
+        effective_start = max(o["start"], cutoff)
+        effective_end = min(o["end"], now)
+        if effective_end > effective_start:
+            total_down_s += effective_end - effective_start
+
+    uptime_pct = ((window_seconds - total_down_s) / window_seconds * 100) if window_seconds else 100
+    uptime_pct = max(0.0, min(100.0, uptime_pct))
+
+    return {
+        "available": True,
+        "outages": events,
+        "summary": {
+            "total_drops": len(events),
+            "total_recoveries": len(events),
+            "uptime_pct": round(uptime_pct, 2),
+            "avg_latency_ms": data.get("avg_latency_ms", 0),
+            "total_seconds_down": round(total_down_s, 1),
+        },
+        "current": data.get("current", {"connected": False, "latency_ms": 0}),
+    }
 
 
 if __name__ == "__main__":
@@ -168,7 +194,8 @@ if __name__ == "__main__":
         except ValueError:
             pass
     try:
-        result = get_outages(window)
+        data = _get_cached()
+        result = _filter_window(data, window)
     except Exception as e:
         result = {"available": False, "error": "Unexpected error: %s" % e}
     json.dump(result, sys.stdout)

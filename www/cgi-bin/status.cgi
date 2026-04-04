@@ -138,6 +138,7 @@ AIRCRAFT_REACHABLE="false"
 AIRCRAFT_KCPTUN="unknown"
 AIRCRAFT_TAP2TCP="unknown"
 AIRCRAFT_IFACE="unknown"
+AIRCRAFT_GITVER="unknown"
 
 if [ -n "$AIRCRAFT_IP" ]; then
     # Cache remote status for 10 seconds to prevent process storms at 1-3s polling
@@ -152,6 +153,7 @@ if [ -n "$AIRCRAFT_IP" ]; then
             AIRCRAFT_KCPTUN=$(sed -n '3p' "$REMOTE_CACHE")
             AIRCRAFT_TAP2TCP=$(sed -n '4p' "$REMOTE_CACHE")
             AIRCRAFT_IFACE=$(sed -n '5p' "$REMOTE_CACHE")
+            AIRCRAFT_GITVER=$(sed -n '6p' "$REMOTE_CACHE")
             # Invalidate if local bridge is up but cached remote says down
             # (bridge came up after cache was written — stale data)
             if [ "$IFACE_STATUS" = "up" ] && [ "$AIRCRAFT_IFACE" = "down" ]; then
@@ -169,6 +171,7 @@ if [ -n "$AIRCRAFT_IP" ]; then
             AIRCRAFT_KCPTUN=$(echo "$DISC_JSON" | sed -n 's/.*"kcptun"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
             AIRCRAFT_TAP2TCP=$(echo "$DISC_JSON" | sed -n 's/.*"tap2tcp"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
             AIRCRAFT_IFACE=$(echo "$DISC_JSON" | sed -n 's/.*"rvr_bridge_interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            AIRCRAFT_GITVER=$(echo "$DISC_JSON" | sed -n 's/.*"git_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
         elif [ -f "$SSH_KEY" ]; then
             # Fallback to SSH
             remote_kcptun_proc="kcptun-server"
@@ -191,7 +194,7 @@ if [ -n "$AIRCRAFT_IP" ]; then
         fi
     fi
     # Write cache
-    printf '%s\n%s\n%s\n%s\n%s\n' "$NOW_S" "$AIRCRAFT_REACHABLE" "$AIRCRAFT_KCPTUN" "$AIRCRAFT_TAP2TCP" "$AIRCRAFT_IFACE" > "$REMOTE_CACHE"
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$NOW_S" "$AIRCRAFT_REACHABLE" "$AIRCRAFT_KCPTUN" "$AIRCRAFT_TAP2TCP" "$AIRCRAFT_IFACE" "$AIRCRAFT_GITVER" > "$REMOTE_CACHE"
     fi  # end CACHE_VALID check
 fi
 
@@ -493,7 +496,8 @@ cat << EOF
       "kcptun_client": "$AIRCRAFT_KCPTUN",
       "tap2tcp": "$AIRCRAFT_TAP2TCP",
       "rvr_bridge_interface": "$AIRCRAFT_IFACE"
-    }
+    },
+    "git_version": "$AIRCRAFT_GITVER"
   },
   "connection": {
     "established": $CONNECTION_ESTABLISHED,

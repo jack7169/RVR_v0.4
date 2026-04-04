@@ -72,9 +72,18 @@ export function OutagePanel() {
     );
   }
 
-  const { summary, outages, current } = data;
+  const { outages, current } = data;
   const now = Math.floor(Date.now() / 1000);
   const windowOutages = outages.filter(o => o.end > now - window);
+
+  // Compute summary from visible events (API summary covers full log, not windowed)
+  const totalRetrans = windowOutages.reduce((s, o) => s + o.retrans_count, 0);
+  const totalLost = windowOutages.reduce((s, o) => s + o.lost_count, 0);
+  const totalRecoverySeconds = windowOutages.reduce((s, o) => s + o.duration_seconds, 0);
+  const lossEvents = windowOutages.filter(o => o.lost_count > 0).length;
+  const uptimePct = window > 0 && totalLost > 0
+    ? Math.max(0, (window - totalRecoverySeconds) / window * 100)
+    : 100;
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -89,6 +98,10 @@ export function OutagePanel() {
           ) : current.in_recovery ? (
             <span className="flex items-center gap-1 text-xs text-warning">
               <Zap className="w-3 h-3" /> Recovering
+            </span>
+          ) : windowOutages.length > 0 ? (
+            <span className="flex items-center gap-1 text-xs text-warning">
+              <Zap className="w-3 h-3" /> {windowOutages.length} event{windowOutages.length !== 1 ? 's' : ''}
             </span>
           ) : (
             <span className="flex items-center gap-1 text-xs text-success">
@@ -119,30 +132,30 @@ export function OutagePanel() {
       {/* Summary tiles */}
       <div className="grid grid-cols-5 gap-px bg-border/50">
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.uptime_pct >= 99.9 ? 'text-success' : summary.uptime_pct >= 99 ? 'text-warning' : 'text-error')}>
-            {summary.uptime_pct.toFixed(1)}%
+          <div className={cn('text-xl font-bold', uptimePct >= 99.9 ? 'text-success' : uptimePct >= 99 ? 'text-warning' : 'text-error')}>
+            {uptimePct.toFixed(1)}%
           </div>
           <div className="text-[10px] text-text-secondary">Uptime</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.total_lost > 0 ? 'text-error' : 'text-text-primary')}>
-            {summary.total_lost}
+          <div className={cn('text-xl font-bold', totalLost > 0 ? 'text-error' : 'text-text-primary')}>
+            {totalLost}
           </div>
           <div className="text-[10px] text-error">Lost Packets</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.total_outages > 0 ? 'text-error' : 'text-text-primary')}>
-            {summary.total_outages}
+          <div className={cn('text-xl font-bold', lossEvents > 0 ? 'text-error' : 'text-text-primary')}>
+            {lossEvents}
           </div>
           <div className="text-[10px] text-text-secondary">Loss Events</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className="text-xl font-bold text-warning">{summary.total_retrans}</div>
+          <div className="text-xl font-bold text-warning">{totalRetrans}</div>
           <div className="text-[10px] text-warning">Retransmits</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className="text-xl font-bold text-text-primary">{summary.total_recoveries ?? 0}</div>
-          <div className="text-[10px] text-text-secondary">Recoveries</div>
+          <div className="text-xl font-bold text-text-primary">{windowOutages.length}</div>
+          <div className="text-[10px] text-text-secondary">Events</div>
         </div>
       </div>
 

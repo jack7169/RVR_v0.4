@@ -50,6 +50,7 @@ export interface StatusResponse {
       tap2tcp: 'running' | 'stopped' | 'unknown';
       rvr_bridge_interface: 'up' | 'down' | 'unknown';
     };
+    git_version?: string;
   };
   connection: {
     established: boolean;

@@ -140,6 +140,29 @@ export default function App() {
         />
       )}
 
+      {status && status.aircraft.git_version
+        && status.aircraft.git_version !== 'unknown'
+        && status.version.current !== 'unknown'
+        && status.aircraft.git_version !== status.version.current
+        && status.connection.established && (
+        <div className="bg-warning/15 border-b border-warning/30 px-4 py-2">
+          <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-warning font-medium">Version mismatch:</span>
+              <span className="text-text-primary">
+                GCS <code className="text-xs">{status.version.current.slice(0, 7)}</code> &ne; Aircraft <code className="text-xs">{status.aircraft.git_version.slice(0, 7)}</code>
+              </span>
+            </div>
+            <button
+              onClick={() => setUpdateModalOpen(true)}
+              className="px-3 py-1 text-xs font-medium rounded-md bg-warning text-black hover:bg-warning/80 transition-colors"
+            >
+              Update Aircraft
+            </button>
+          </div>
+        </div>
+      )}
+
       {status && (
         <Suspense fallback={null}>
           <UpdateModal

@@ -107,9 +107,18 @@ export function StarlinkPanel() {
     );
   }
 
-  const { summary, outages, current } = data;
+  const { outages, current } = data;
+  const avgLatency = data.summary.avg_latency_ms;
   const now = Math.floor(Date.now() / 1000);
   const windowOutages = outages.filter(o => o.end > now - window);
+
+  // Compute summary client-side for instant window switching
+  const totalDown = windowOutages.reduce((s, o) => {
+    const start = Math.max(o.start, now - window);
+    const end = Math.min(o.end, now);
+    return s + Math.max(0, end - start);
+  }, 0);
+  const uptimePct = window > 0 ? Math.max(0, Math.min(100, (window - totalDown) / window * 100)) : 100;
 
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -122,9 +131,9 @@ export function StarlinkPanel() {
             <span className="flex items-center gap-1 text-xs text-error">
               <Zap className="w-3 h-3" /> Disconnected
             </span>
-          ) : summary.total_drops > 0 ? (
+          ) : windowOutages.length > 0 ? (
             <span className="flex items-center gap-1 text-xs text-warning">
-              <Wifi className="w-3 h-3" /> {summary.total_drops} event{summary.total_drops !== 1 ? 's' : ''}
+              <Wifi className="w-3 h-3" /> {windowOutages.length} event{windowOutages.length !== 1 ? 's' : ''}
             </span>
           ) : (
             <span className="flex items-center gap-1 text-xs text-success">
@@ -155,26 +164,26 @@ export function StarlinkPanel() {
       {/* Summary tiles */}
       <div className="grid grid-cols-4 gap-px bg-border/50">
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.uptime_pct >= 99.9 ? 'text-success' : summary.uptime_pct >= 99 ? 'text-warning' : 'text-error')}>
-            {summary.uptime_pct.toFixed(1)}%
+          <div className={cn('text-xl font-bold', uptimePct >= 99.9 ? 'text-success' : uptimePct >= 99 ? 'text-warning' : 'text-error')}>
+            {uptimePct.toFixed(1)}%
           </div>
           <div className="text-[10px] text-text-secondary">Uptime</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.total_drops > 0 ? 'text-error' : 'text-text-primary')}>
-            {summary.total_drops}
+          <div className={cn('text-xl font-bold', windowOutages.length > 0 ? 'text-error' : 'text-text-primary')}>
+            {windowOutages.length}
           </div>
           <div className="text-[10px] text-text-secondary">Events</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
           <div className="text-xl font-bold text-text-primary">
-            {summary.avg_latency_ms > 0 ? `${summary.avg_latency_ms}ms` : '--'}
+            {avgLatency > 0 ? `${avgLatency}ms` : '--'}
           </div>
           <div className="text-[10px] text-text-secondary">Avg Latency</div>
         </div>
         <div className="bg-bg-card p-3 text-center">
-          <div className={cn('text-xl font-bold', summary.total_seconds_down > 0 ? 'text-warning' : 'text-text-primary')}>
-            {summary.total_seconds_down > 0 ? formatDuration(summary.total_seconds_down) : '0s'}
+          <div className={cn('text-xl font-bold', totalDown > 0 ? 'text-warning' : 'text-text-primary')}>
+            {totalDown > 0 ? formatDuration(totalDown) : '0s'}
           </div>
           <div className="text-[10px] text-text-secondary">Downtime</div>
         </div>

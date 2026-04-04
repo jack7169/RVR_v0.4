@@ -714,15 +714,15 @@ stop_local_services() {
     # Cleanup in case tap2tcp-down didn't run
     nft delete table bridge rvr_filter 2>/dev/null || true
     ip link set rvr_bridge nomaster 2>/dev/null || true
-    ip link del rvr 2>/dev/null || true
+    ip link del rvr_bridge 2>/dev/null || true
     # Revert STP to prevent netifd from tearing down br-lan
     ip link set br-lan type bridge stp_state 0 2>/dev/null || true
     iptables -D OUTPUT -o br-lan -p udp --dport 41641 -j DROP 2>/dev/null || true
     iptables -D OUTPUT -o br-lan -p udp --sport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
-    iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -i rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -o rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -i rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+    iptables -D FORWARD -o rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
 }
 
 stop_aircraft_services() {
@@ -733,13 +733,13 @@ stop_aircraft_services() {
         /etc/init.d/kcptun-client stop 2>/dev/null || true
         nft delete table bridge rvr_filter 2>/dev/null || true
         ip link set rvr_bridge nomaster 2>/dev/null || true
-        ip link del rvr 2>/dev/null || true
+        ip link del rvr_bridge 2>/dev/null || true
         iptables -D OUTPUT -o br-lan -p udp --dport 41641 -j DROP 2>/dev/null || true
         iptables -D OUTPUT -o br-lan -p udp --sport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
-        iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -i rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -o rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -i rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+        iptables -D FORWARD -o rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
     ' 2>/dev/null || true
 }
 
@@ -1066,10 +1066,10 @@ ip link set rvr_bridge mtu $BRIDGE_MTU
 ip link set rvr_bridge up
 iptables -I OUTPUT -o $gcs_bridge -p udp --dport 41641 -j DROP
 iptables -I OUTPUT -o $gcs_bridge -p udp --sport 41641 -j DROP
-iptables -I FORWARD -i rvr -p udp --dport 41641 -j DROP
-iptables -I FORWARD -o rvr -p udp --dport 41641 -j DROP
-iptables -I FORWARD -i rvr -p udp --sport 41641 -j DROP
-iptables -I FORWARD -o rvr -p udp --sport 41641 -j DROP
+iptables -I FORWARD -i rvr_bridge -p udp --dport 41641 -j DROP
+iptables -I FORWARD -o rvr_bridge -p udp --dport 41641 -j DROP
+iptables -I FORWARD -i rvr_bridge -p udp --sport 41641 -j DROP
+iptables -I FORWARD -o rvr_bridge -p udp --sport 41641 -j DROP
 ip link set $gcs_bridge type bridge stp_state 1
 ip link set rvr_bridge master $gcs_bridge
 nft -f - <<'NFTEOF'
@@ -1101,10 +1101,10 @@ nft delete table bridge rvr_filter 2>/dev/null || true
 ip link set rvr_bridge nomaster 2>/dev/null || true
 iptables -D OUTPUT -o $gcs_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
 iptables -D OUTPUT -o $gcs_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
 EOF
     chmod +x /etc/rvr/tap2tcp-down
 
@@ -1177,7 +1177,7 @@ start_service() {
         sleep 2; elapsed=$((elapsed + 2))
     done
     procd_open_instance
-    procd_set_param command /usr/bin/tap2tcp -m server -l 127.0.0.1:655 -t rvr -u /etc/rvr/tap2tcp-up -d /etc/rvr/tap2tcp-down -s /tmp/tap2tcp.stats -L 1000 -H 2000
+    procd_set_param command /usr/bin/tap2tcp -m server -l 127.0.0.1:655 -t rvr_bridge -u /etc/rvr/tap2tcp-up -d /etc/rvr/tap2tcp-down -s /tmp/tap2tcp.stats -L 1000 -H 2000
     procd_set_param respawn 3600 5 5
     procd_set_param stderr 1
     procd_set_param stdout 1
@@ -1213,10 +1213,10 @@ ip link set rvr_bridge mtu $BRIDGE_MTU
 ip link set rvr_bridge up
 iptables -I OUTPUT -o $aircraft_bridge -p udp --dport 41641 -j DROP
 iptables -I OUTPUT -o $aircraft_bridge -p udp --sport 41641 -j DROP
-iptables -I FORWARD -i rvr -p udp --dport 41641 -j DROP
-iptables -I FORWARD -o rvr -p udp --dport 41641 -j DROP
-iptables -I FORWARD -i rvr -p udp --sport 41641 -j DROP
-iptables -I FORWARD -o rvr -p udp --sport 41641 -j DROP
+iptables -I FORWARD -i rvr_bridge -p udp --dport 41641 -j DROP
+iptables -I FORWARD -o rvr_bridge -p udp --dport 41641 -j DROP
+iptables -I FORWARD -i rvr_bridge -p udp --sport 41641 -j DROP
+iptables -I FORWARD -o rvr_bridge -p udp --sport 41641 -j DROP
 ip link set $aircraft_bridge type bridge stp_state 1
 ip link set rvr_bridge master $aircraft_bridge
 nft -f - <<'NFTEOF'
@@ -1248,10 +1248,10 @@ nft delete table bridge rvr_filter 2>/dev/null || true
 ip link set rvr_bridge nomaster 2>/dev/null || true
 iptables -D OUTPUT -o $aircraft_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
 iptables -D OUTPUT -o $aircraft_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o rvr -p udp --dport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -i rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
-iptables -D FORWARD -o rvr -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr_bridge -p udp --dport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -i rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
+iptables -D FORWARD -o rvr_bridge -p udp --sport 41641 -j DROP 2>/dev/null || true
 DOWNEOF
 chmod +x /etc/rvr/tap2tcp-down"
 
@@ -1322,7 +1322,7 @@ start_service() {
         sleep 2; elapsed=$((elapsed + 2))
     done
     procd_open_instance
-    procd_set_param command /usr/bin/tap2tcp -m client -c 127.0.0.1:4001 -t rvr -u /etc/rvr/tap2tcp-up -d /etc/rvr/tap2tcp-down -s /tmp/tap2tcp.stats -L 1000 -H 2000
+    procd_set_param command /usr/bin/tap2tcp -m client -c 127.0.0.1:4001 -t rvr_bridge -u /etc/rvr/tap2tcp-up -d /etc/rvr/tap2tcp-down -s /tmp/tap2tcp.stats -L 1000 -H 2000
     procd_set_param respawn 3600 5 5
     procd_set_param stderr 1
     procd_set_param stdout 1
@@ -2348,7 +2348,7 @@ cmd_capture() {
             fi
 
             echo "Starting capture on rvr for ${duration}s -> $outfile"
-            (tcpdump -i rvr -s 0 -w "$outfile" >/dev/null 2>&1 & echo $! > "$CAPTURE_PID_FILE"; wait $!; rm -f "$CAPTURE_PID_FILE" "/tmp/rvr-capture.start") >/dev/null 2>&1 &
+            (tcpdump -i rvr_bridge -s 0 -w "$outfile" >/dev/null 2>&1 & echo $! > "$CAPTURE_PID_FILE"; wait $!; rm -f "$CAPTURE_PID_FILE" "/tmp/rvr-capture.start") >/dev/null 2>&1 &
             sleep 1
             local pid=$(cat "$CAPTURE_PID_FILE" 2>/dev/null)
             date +%s > /tmp/rvr-capture.start

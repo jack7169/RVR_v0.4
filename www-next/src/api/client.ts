@@ -152,6 +152,12 @@ export async function updateRemote(aircraftIp: string, branch?: string): Promise
   return postApi(body);
 }
 
+export async function updateBoth(aircraftIp: string, branch?: string): Promise<CommandResponse> {
+  const body: Record<string, unknown> = { action: 'update_both', aircraft_ip: aircraftIp };
+  if (branch) body.branch = branch;
+  return postApi(body);
+}
+
 export interface CheckUpdateResponse {
   current: string;
   latest: string;

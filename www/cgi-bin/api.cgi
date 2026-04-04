@@ -1203,6 +1203,11 @@ main() {
             local branch=$(parse_json "branch" "$post_data")
             update_remote_action "$ip" "$branch"
             ;;
+        update_both)
+            local ip=$(parse_json "aircraft_ip" "$post_data")
+            local branch=$(parse_json "branch" "$post_data")
+            update_both_action "$ip" "$branch"
+            ;;
         check_update)
             check_update_action
             ;;
@@ -1261,6 +1266,38 @@ update_remote_action() {
     ) >> /tmp/rvr-setup.log 2>&1 &
 
     json_response '{"success": true, "message": "Remote update started", "log_file": "/tmp/rvr-setup.log"}'
+}
+
+# Update both this device and a remote peer (sequentially in one job)
+update_both_action() {
+    local ip="$1"
+    local branch="$2"
+    [ -z "$ip" ] && json_error "aircraft_ip is required"
+    [ -x "$RVR_BIN" ] || json_error "rvr not found"
+
+    local branch_arg=""
+    [ -n "$branch" ] && branch_arg="--branch $branch"
+
+    : > /tmp/rvr-setup.log
+    (
+        echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..."
+        "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
+        local rc_local=$?
+        echo "" >> /tmp/rvr-setup.log
+
+        echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
+        _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
+        local rc_remote=$?
+
+        rm -f "$DISCOVERY_CACHE"
+        run_discovery_scan >/dev/null 2>&1 &
+
+        local rc=0
+        [ $rc_local -ne 0 ] || [ $rc_remote -ne 0 ] && rc=1
+        echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
+    ) >> /tmp/rvr-setup.log 2>&1 &
+
+    json_response '{"success": true, "message": "Update started on both devices", "log_file": "/tmp/rvr-setup.log"}'
 }
 
 # Force-refresh version check (clears cache, re-fetches from GitHub)

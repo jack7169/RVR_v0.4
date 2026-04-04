@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Download, CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
-import { updateLocal, updateRemote, listBranches } from '../api/client';
+import { updateLocal, updateRemote, updateBoth, listBranches } from '../api/client';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 
@@ -80,15 +80,13 @@ export function UpdateModal({ open, onClose, status }: Props) {
 
     try {
       if (updateGcs && updateAircraft && aircraftIp) {
-        await updateRemote(aircraftIp, branchArg);
-        startPolling();
+        await updateBoth(aircraftIp, branchArg);
       } else if (updateAircraft && aircraftIp) {
         await updateRemote(aircraftIp, branchArg);
-        startPolling();
       } else if (updateGcs) {
         await updateLocal(branchArg);
-        startPolling();
       }
+      startPolling();
     } catch (e) {
       setLog(prev => prev + `\nError: ${e instanceof Error ? e.message : 'Unknown error'}\n`);
       setPhase('done');

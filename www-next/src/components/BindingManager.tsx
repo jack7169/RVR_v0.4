@@ -12,6 +12,7 @@ import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { useToast } from './ui/Toast';
 import { cn, formatBytes } from '../lib/utils';
+import { useStatus } from '../hooks/useStatus';
 
 interface Props {
   onRefresh: () => void;
@@ -347,10 +348,30 @@ function LinkProfileSection() {
   const [profile, setProfile] = useState({ upload_mbps: 15, download_mbps: 150, latency_budget_ms: 2000 });
   const [applying, setApplying] = useState(false);
   const { toast } = useToast();
+  const { status } = useStatus();
+  const measuredMode = status?.aircraft.tailscale_peer.mode;
 
   useEffect(() => {
     fetchLinkProfile().then(p => setProfile({ upload_mbps: p.upload_mbps, download_mbps: p.download_mbps, latency_budget_ms: p.latency_budget_ms })).catch(() => {});
   }, []);
+
+  // Which preset matches current profile values?
+  const activePreset = Object.entries(LINK_PRESETS).find(
+    ([, p]) => p.up === profile.upload_mbps && p.down === profile.download_mbps && p.lat === profile.latency_budget_ms
+  )?.[0] ?? null;
+
+  // Auto-switch preset when measured mode changes (only if currently on a different preset, not custom)
+  useEffect(() => {
+    if (!measuredMode) return;
+    const target = measuredMode === 'direct' ? 'Starlink Direct'
+                 : measuredMode === 'relay' ? 'Relay (DERP)'
+                 : null;
+    if (!target) return;
+    const preset = LINK_PRESETS[target];
+    if (activePreset && activePreset !== target) {
+      setProfile({ upload_mbps: preset.up, download_mbps: preset.down, latency_budget_ms: preset.lat });
+    }
+  }, [measuredMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApply = async () => {
     setApplying(true);
@@ -367,13 +388,28 @@ function LinkProfileSection() {
 
   return (
     <div className="mb-4 pb-4 border-b border-border">
-      <div className="text-xs font-semibold text-text-secondary mb-2">Link Profile</div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-semibold text-text-secondary">Link Profile</span>
+        {measuredMode && measuredMode !== 'unknown' && (
+          <span className={cn('flex items-center gap-1 text-[10px]',
+            measuredMode === 'direct' ? 'text-success' : measuredMode === 'relay' ? 'text-warning' : 'text-text-secondary',
+          )}>
+            <span className={cn('w-1.5 h-1.5 rounded-full',
+              measuredMode === 'direct' ? 'bg-success' : measuredMode === 'relay' ? 'bg-warning' : 'bg-text-secondary',
+            )} />
+            {measuredMode}
+          </span>
+        )}
+      </div>
       <div className="flex gap-2 mb-2 flex-wrap">
         {Object.entries(LINK_PRESETS).map(([name, p]) => (
           <button
             key={name}
             onClick={() => setProfile({ upload_mbps: p.up, download_mbps: p.down, latency_budget_ms: p.lat })}
-            className="text-xs bg-border/30 hover:bg-border/50 px-2 py-1 rounded transition-colors"
+            className={cn(
+              'text-xs px-2 py-1 rounded transition-colors',
+              activePreset === name ? 'bg-accent text-white' : 'bg-border/30 hover:bg-border/50',
+            )}
           >
             {name}
           </button>

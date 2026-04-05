@@ -76,10 +76,11 @@ EOF
             [ $? -ne 0 ] && rc=1
         fi
 
-        # Post-update: refresh device discovery cache
+        # Post-update: invalidate all caches so status polling picks up new versions
         if [ -n "$DISCOVERY_CACHE" ]; then
             rm -f "$DISCOVERY_CACHE"
         fi
+        rm -f "/tmp/${UPDATE_CACHE_PREFIX}-remote-cache"
         if type run_discovery_scan >/dev/null 2>&1; then
             run_discovery_scan >/dev/null 2>&1 &
         fi

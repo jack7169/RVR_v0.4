@@ -791,6 +791,9 @@ export function BindingManager({ onRefresh, bridgeConnected, gcsVersion, aircraf
           const selfPeer = discovery?.self;
           const peerOnline = aircraftPeer?.connection_mode === 'online';
           const isLinked = bridgeConnected;
+          // Prefer live discovery version (refreshed after update) over status.cgi cache
+          const effectiveAircraftVersion = aircraftPeer?.git_version && aircraftPeer.git_version !== 'unknown'
+            ? aircraftPeer.git_version : aircraftVersion;
 
           return (
             <div>
@@ -852,9 +855,9 @@ export function BindingManager({ onRefresh, bridgeConnected, gcsVersion, aircraf
                     <span className={cn('text-xs', peerOnline ? 'text-success' : 'text-error')}>
                       {aircraftPeer?.connection_mode || 'unknown'}
                     </span>
-                    {(aircraftVersion || aircraftPeer?.git_version) && (aircraftVersion || aircraftPeer?.git_version) !== 'unknown' && (
+                    {(aircraftPeer?.git_version || aircraftVersion) && (aircraftPeer?.git_version || aircraftVersion) !== 'unknown' && (
                       <span className="text-xs font-mono text-text-secondary">
-                        {(aircraftVersion || aircraftPeer?.git_version || '').slice(0, 7)}
+                        {(aircraftPeer?.git_version || aircraftVersion || '').slice(0, 7)}
                       </span>
                     )}
                   </div>
@@ -885,12 +888,12 @@ export function BindingManager({ onRefresh, bridgeConnected, gcsVersion, aircraf
               )}
 
               {/* Version mismatch warning */}
-              {gcsVersion && aircraftVersion
-                && gcsVersion !== 'unknown' && aircraftVersion !== 'unknown'
-                && gcsVersion !== aircraftVersion && (
+              {gcsVersion && effectiveAircraftVersion
+                && gcsVersion !== 'unknown' && effectiveAircraftVersion !== 'unknown'
+                && gcsVersion !== effectiveAircraftVersion && (
                 <div className="mt-3 bg-warning/10 border border-warning/30 rounded-lg p-3 flex items-center justify-between gap-3">
                   <div className="text-xs text-warning">
-                    Version mismatch: GCS <code>{gcsVersion.slice(0, 7)}</code> ≠ Aircraft <code>{aircraftVersion.slice(0, 7)}</code>
+                    Version mismatch: GCS <code>{gcsVersion.slice(0, 7)}</code> ≠ Aircraft <code>{effectiveAircraftVersion.slice(0, 7)}</code>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <Button size="sm" variant="warning" loading={syncing} onClick={async () => {

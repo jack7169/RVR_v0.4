@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Download, CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
-import { updateLocal, updateRemote, updateBoth, listBranches } from '../api/client';
+import { updateDevices, listBranches, listAircraft } from '../api/client';
+import type { AircraftProfile } from '../api/types';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 
@@ -9,14 +10,17 @@ interface Props {
   open: boolean;
   onClose: () => void;
   status: StatusResponse;
-  defaultTarget?: 'default' | 'aircraft';
+  /** 'default' = pre-select GCS only; an IP string = pre-select that remote device only */
+  defaultTarget?: string;
 }
 
 type Phase = 'select' | 'running' | 'done';
 
-export function UpdateModal({ open, onClose, status, defaultTarget }: Props) {
-  const [updateGcs, setUpdateGcs] = useState(true);
-  const [updateAircraft, setUpdateAircraft] = useState(false);
+const LOCAL_KEY = '__local__';
+
+export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }: Props) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [devices, setDevices] = useState<{ id: string; label: string; ip?: string }[]>([]);
   const [phase, setPhase] = useState<Phase>('select');
   const [log, setLog] = useState('');
   const [success, setSuccess] = useState(false);
@@ -26,35 +30,65 @@ export function UpdateModal({ open, onClose, status, defaultTarget }: Props) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  const aircraftIp = status.aircraft.tailscale_ip;
-  const aircraftName = status.aircraft.profile_name;
-  const hasAircraft = !!aircraftIp && status.aircraft.reachable;
   const currentBranch = status.version.branch || 'main';
 
   useEffect(() => {
-    if (open) {
-      setPhase('select');
-      setLog('');
-      setSuccess(false);
-      setUpdateGcs(defaultTarget !== 'aircraft');
-      setUpdateAircraft(defaultTarget === 'aircraft');
-      setSelectedBranch(currentBranch);
-      // Fetch available branches
-      setLoadingBranches(true);
-      listBranches()
-        .then(data => {
-          setBranches(data.branches);
-          setSelectedBranch(data.current);
-        })
-        .catch(() => setBranches([currentBranch]))
-        .finally(() => setLoadingBranches(false));
-    }
+    if (!open) return;
+    setPhase('select');
+    setLog('');
+    setSuccess(false);
+    setSelectedBranch(currentBranch);
+
+    // Build device list: local + all bound profiles
+    const devs: { id: string; label: string; ip?: string }[] = [
+      { id: LOCAL_KEY, label: 'This device (GCS)' },
+    ];
+
+    listAircraft()
+      .then(data => {
+        for (const [id, profile] of Object.entries(data.profiles) as [string, AircraftProfile][]) {
+          devs.push({ id, label: `${profile.name} (${profile.tailscale_ip})`, ip: profile.tailscale_ip });
+        }
+        setDevices(devs);
+
+        // Set default selection
+        if (defaultTarget === 'default') {
+          setSelected(new Set([LOCAL_KEY]));
+        } else {
+          // defaultTarget is an aircraft IP — find matching device
+          const match = devs.find(d => d.ip === defaultTarget);
+          setSelected(new Set(match ? [match.id] : [LOCAL_KEY]));
+        }
+      })
+      .catch(() => {
+        setDevices(devs);
+        setSelected(new Set([LOCAL_KEY]));
+      });
+
+    // Fetch branches
+    setLoadingBranches(true);
+    listBranches()
+      .then(data => {
+        setBranches(data.branches);
+        setSelectedBranch(data.current);
+      })
+      .catch(() => setBranches([currentBranch]))
+      .finally(() => setLoadingBranches(false));
+
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [open, currentBranch]);
+  }, [open, currentBranch, defaultTarget]);
 
   useEffect(() => {
     if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [log]);
+
+  const toggleDevice = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const startPolling = () => {
     pollRef.current = setInterval(async () => {
@@ -76,17 +110,14 @@ export function UpdateModal({ open, onClose, status, defaultTarget }: Props) {
     setPhase('running');
     setLog('Starting update...\n');
 
-    // Pass branch if different from current
     const branchArg = selectedBranch !== currentBranch ? selectedBranch : undefined;
+    const includeLocal = selected.has(LOCAL_KEY);
+    const remoteIps = devices
+      .filter(d => d.ip && selected.has(d.id))
+      .map(d => d.ip!);
 
     try {
-      if (updateGcs && updateAircraft && aircraftIp) {
-        await updateBoth(aircraftIp, branchArg);
-      } else if (updateAircraft && aircraftIp) {
-        await updateRemote(aircraftIp, branchArg);
-      } else if (updateGcs) {
-        await updateLocal(branchArg);
-      }
+      await updateDevices(remoteIps, includeLocal, branchArg);
       startPolling();
     } catch (e) {
       setLog(prev => prev + `\nError: ${e instanceof Error ? e.message : 'Unknown error'}\n`);
@@ -148,33 +179,24 @@ export function UpdateModal({ open, onClose, status, defaultTarget }: Props) {
           {/* Device selection */}
           <div className="border border-border rounded-lg p-3 space-y-2">
             <div className="text-sm font-medium mb-2">Devices to update:</div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={updateGcs}
-                onChange={e => setUpdateGcs(e.target.checked)}
-                className="accent-accent"
-              />
-              This device (GCS)
-            </label>
-            {hasAircraft && (
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+            {devices.map(dev => (
+              <label key={dev.id} className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={updateAircraft}
-                  onChange={e => setUpdateAircraft(e.target.checked)}
+                  checked={selected.has(dev.id)}
+                  onChange={() => toggleDevice(dev.id)}
                   className="accent-accent"
                 />
-                Aircraft ({aircraftName || aircraftIp})
+                {dev.label}
               </label>
-            )}
+            ))}
           </div>
 
           <div className="flex justify-end">
             <Button
               variant={isBranchSwitch ? 'warning' : 'primary'}
               size="sm"
-              disabled={!updateGcs && !updateAircraft}
+              disabled={selected.size === 0}
               onClick={startUpdate}
             >
               <Download className="w-3.5 h-3.5" />

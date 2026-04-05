@@ -89,7 +89,7 @@ export default function App() {
   const { status, error, lastUpdate, refresh } = useStatus();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [updateTarget, setUpdateTarget] = useState<'default' | 'aircraft'>('default');
+  const [updateTarget, setUpdateTarget] = useState('default');
   // Latch: once we've seen update_available=true, keep showing banner
   // until user dismisses (X button) or post-update reload clears it
   const [updateSeen, setUpdateSeen] = useState<{ latest: string; branch: string } | null>(null);
@@ -171,7 +171,7 @@ export default function App() {
               </span>
             </div>
             <button
-              onClick={() => { setUpdateTarget('aircraft'); setUpdateModalOpen(true); }}
+              onClick={() => { setUpdateTarget(status.aircraft.tailscale_ip || 'default'); setUpdateModalOpen(true); }}
               className="px-3 py-1 text-xs font-medium rounded-md bg-warning text-black hover:bg-warning/80 transition-colors"
             >
               Update Aircraft

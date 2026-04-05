@@ -1204,19 +1204,11 @@ main() {
             ;;
 
         # Update management
-        update_local)
+        update_devices)
+            local remote_ips=$(parse_json "remote_ips" "$post_data")
+            local include_local=$(parse_json "include_local" "$post_data")
             local branch=$(parse_json "branch" "$post_data")
-            update_local_action "$branch"
-            ;;
-        update_remote)
-            local ip=$(parse_json "aircraft_ip" "$post_data")
-            local branch=$(parse_json "branch" "$post_data")
-            update_remote_action "$ip" "$branch"
-            ;;
-        update_both)
-            local ip=$(parse_json "aircraft_ip" "$post_data")
-            local branch=$(parse_json "branch" "$post_data")
-            update_both_action "$ip" "$branch"
+            update_devices_action "$remote_ips" "$include_local" "$branch"
             ;;
         check_update)
             check_update_action
@@ -1234,82 +1226,48 @@ main() {
 # ── Update Management ─────────────────────────────────────────────────
 
 # Update this device (runs rvr update in background)
-update_local_action() {
-    local branch="$1"
-    [ -x "$RVR_BIN" ] || json_error "rvr not found"
+# Update one or more devices (remote IPs comma-separated, local last)
+update_devices_action() {
+    local remote_ips="$1"
+    local include_local="$2"
+    local branch="$3"
+
+    [ -z "$remote_ips" ] && [ "$include_local" != "true" ] && json_error "No devices selected"
+    [ "$include_local" = "true" ] && { [ -x "$RVR_BIN" ] || json_error "rvr not found"; }
+    [ -n "$remote_ips" ] && { [ -f "$SSH_KEY" ] || json_error "SSH key not available"; }
 
     local branch_arg=""
     [ -n "$branch" ] && branch_arg="--branch $branch"
 
     : > /tmp/rvr-setup.log
     (
-        echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..."
-        "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
-        local rc=$?
+        rc=0
+
+        # Remote devices FIRST — VPN tunnel still intact before local bridge restart
+        if [ -n "$remote_ips" ]; then
+            echo "$remote_ips" | tr ',' '\n' | while IFS= read -r ip; do
+                [ -z "$ip" ] && continue
+                echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
+                _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
+                [ $? -ne 0 ] && rc=1
+                echo "" >> /tmp/rvr-setup.log
+            done
+        fi
+
+        # Local LAST — bridge restart at end won't affect remote SSH
+        if [ "$include_local" = "true" ]; then
+            echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
+            "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
+            [ $? -ne 0 ] && rc=1
+        fi
+
         rm -f "$DISCOVERY_CACHE"
         run_discovery_scan >/dev/null 2>&1 &
+
         echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
     ) >> /tmp/rvr-setup.log 2>&1 &
 
     json_response '{"success": true, "message": "Update started", "log_file": "/tmp/rvr-setup.log"}'
-}
-
-# Update a remote peer via SSH
-update_remote_action() {
-    local ip="$1"
-    local branch="$2"
-    [ -z "$ip" ] && json_error "aircraft_ip is required"
-    validate_ip "$ip" || json_error "Invalid IP format (must be 100.x.x.x)"
-    [ -f "$SSH_KEY" ] || json_error "SSH key not available"
-
-    local branch_arg=""
-    [ -n "$branch" ] && branch_arg="--branch $branch"
-
-    : > /tmp/rvr-setup.log
-    (
-        echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..."
-        _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
-        local rc=$?
-        rm -f "$DISCOVERY_CACHE"
-        run_discovery_scan >/dev/null 2>&1 &
-        echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
-    ) >> /tmp/rvr-setup.log 2>&1 &
-
-    json_response '{"success": true, "message": "Remote update started", "log_file": "/tmp/rvr-setup.log"}'
-}
-
-# Update both this device and a remote peer (sequentially in one job)
-update_both_action() {
-    local ip="$1"
-    local branch="$2"
-    [ -z "$ip" ] && json_error "aircraft_ip is required"
-    [ -x "$RVR_BIN" ] || json_error "rvr not found"
-
-    local branch_arg=""
-    [ -n "$branch" ] && branch_arg="--branch $branch"
-
-    : > /tmp/rvr-setup.log
-    (
-        # Remote FIRST — VPN tunnel still intact before local bridge restart
-        echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..."
-        _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
-        local rc_remote=$?
-        echo "" >> /tmp/rvr-setup.log
-
-        # Local SECOND — bridge restart at end won't affect remote
-        echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
-        "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
-        local rc_local=$?
-
-        rm -f "$DISCOVERY_CACHE"
-        run_discovery_scan >/dev/null 2>&1 &
-
-        local rc=0
-        [ $rc_local -ne 0 ] || [ $rc_remote -ne 0 ] && rc=1
-        echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
-    ) >> /tmp/rvr-setup.log 2>&1 &
-
-    json_response '{"success": true, "message": "Update started on both devices", "log_file": "/tmp/rvr-setup.log"}'
 }
 
 # Force-refresh version check (clears cache, re-fetches from GitHub)

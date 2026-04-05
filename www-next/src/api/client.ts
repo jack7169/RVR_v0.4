@@ -140,20 +140,12 @@ export async function fetchStatsHistory(windowSeconds = 900): Promise<StatsHisto
 
 // ── Update Management ────────────────────────────────────────────────
 
-export async function updateLocal(branch?: string): Promise<CommandResponse> {
-  const body: Record<string, unknown> = { action: 'update_local' };
-  if (branch) body.branch = branch;
-  return postApi(body);
-}
-
-export async function updateRemote(aircraftIp: string, branch?: string): Promise<CommandResponse> {
-  const body: Record<string, unknown> = { action: 'update_remote', aircraft_ip: aircraftIp };
-  if (branch) body.branch = branch;
-  return postApi(body);
-}
-
-export async function updateBoth(aircraftIp: string, branch?: string): Promise<CommandResponse> {
-  const body: Record<string, unknown> = { action: 'update_both', aircraft_ip: aircraftIp };
+export async function updateDevices(remoteIps: string[], includeLocal: boolean, branch?: string): Promise<CommandResponse> {
+  const body: Record<string, unknown> = {
+    action: 'update_devices',
+    remote_ips: remoteIps.join(','),
+    include_local: includeLocal ? 'true' : 'false',
+  };
   if (branch) body.branch = branch;
   return postApi(body);
 }

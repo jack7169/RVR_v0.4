@@ -857,8 +857,8 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                     <Button size="sm" variant="danger" loading={syncing} onClick={async () => {
                       setSyncing(true);
                       try {
-                        const { updateRemote } = await import('../api/client');
-                        const res = await updateRemote(activeProfile.tailscale_ip, selfPeer!.git_branch);
+                        const { updateDevices } = await import('../api/client');
+                        const res = await updateDevices([activeProfile.tailscale_ip], false, selfPeer!.git_branch);
                         toast(res.success ? 'Aircraft sync started' : (res.error || 'Sync failed'), res.success ? 'success' : 'error');
                       } catch { toast('Sync failed', 'error'); }
                       finally { setSyncing(false); }
@@ -882,8 +882,8 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                     <Button size="sm" variant="warning" loading={syncing} onClick={async () => {
                       setSyncing(true);
                       try {
-                        const { updateRemote } = await import('../api/client');
-                        const res = await updateRemote(activeProfile.tailscale_ip);
+                        const { updateDevices } = await import('../api/client');
+                        const res = await updateDevices([activeProfile.tailscale_ip], false);
                         toast(res.success ? 'Aircraft update started' : (res.error || 'Update failed'), res.success ? 'success' : 'error');
                       } catch { toast('Update failed', 'error'); }
                       finally { setSyncing(false); }

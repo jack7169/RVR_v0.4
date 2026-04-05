@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { RefreshCw, HardDrive } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { checkUpdate } from '../api/client';
+import { checkUpdate, type CheckUpdateResponse } from '../api/client';
 
 export type AppTab = 'dashboard' | 'binding' | 'help';
 
@@ -26,9 +26,10 @@ interface HeaderProps {
   onTabChange: (tab: AppTab) => void;
   version?: VersionInfo;
   system?: SystemInfo;
+  onCheckResult?: (result: CheckUpdateResponse) => void;
 }
 
-export function Header({ connected, activeTab, onTabChange, version, system }: HeaderProps) {
+export function Header({ connected, activeTab, onTabChange, version, system, onCheckResult }: HeaderProps) {
   const [checking, setChecking] = useState(false);
   const versionHash = version?.current && version.current !== 'unknown' ? version.current : null;
   const branch = version?.branch || 'main';
@@ -38,10 +39,8 @@ export function Header({ connected, activeTab, onTabChange, version, system }: H
   const handleCheckUpdate = async () => {
     setChecking(true);
     try {
-      await checkUpdate();
-      // Status poll (3s interval) picks up the result —
-      // forcing an immediate invalidation causes a render storm
-      // that crashes Recharts' internal redux subscriptions.
+      const result = await checkUpdate();
+      onCheckResult?.(result);
     } catch {} finally {
       setChecking(false);
     }

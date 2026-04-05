@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowUpCircle, X, RefreshCw } from 'lucide-react';
-import { checkUpdate } from '../api/client';
+import { checkUpdate, type CheckUpdateResponse } from '../api/client';
 
 interface Props {
   current: string;
@@ -8,17 +8,17 @@ interface Props {
   branch: string;
   onUpdate: () => void;
   onDismiss: () => void;
+  onCheckResult?: (result: CheckUpdateResponse) => void;
 }
 
-export function UpdateBanner({ current, latest, branch, onUpdate, onDismiss }: Props) {
+export function UpdateBanner({ current, latest, branch, onUpdate, onDismiss, onCheckResult }: Props) {
   const [checking, setChecking] = useState(false);
 
   const handleCheck = async () => {
     setChecking(true);
     try {
-      await checkUpdate();
-      // Let the 3s status poll pick up the result naturally —
-      // immediate invalidation crashes Recharts' redux internals.
+      const result = await checkUpdate();
+      onCheckResult?.(result);
     } catch {} finally {
       setChecking(false);
     }

@@ -129,6 +129,14 @@ export default function App() {
         onTabChange={setActiveTab}
         version={status?.version}
         system={status?.system}
+        onCheckResult={(r) => {
+          if (r.update_available && r.latest) {
+            setUpdateSeen({ latest: r.latest, branch: r.branch || 'main' });
+            setBannerDismissed(false);
+          } else {
+            setUpdateSeen(null);
+          }
+        }}
       />
 
       {updateSeen && !bannerDismissed && !suppressBanner && (
@@ -138,6 +146,13 @@ export default function App() {
           branch={updateSeen.branch}
           onUpdate={() => setUpdateModalOpen(true)}
           onDismiss={() => setBannerDismissed(true)}
+          onCheckResult={(r) => {
+            if (r.update_available && r.latest) {
+              setUpdateSeen({ latest: r.latest, branch: r.branch || 'main' });
+            } else {
+              setUpdateSeen(null);
+            }
+          }}
         />
       )}
 

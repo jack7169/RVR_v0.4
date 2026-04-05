@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode } from 'react';
+import { useState, useMemo, lazy, Suspense, Component, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
-import { UpdateBanner } from './components/UpdateBanner';
+import { UpdateBanner } from '@update/UpdateBanner';
+import { useUpdateState } from '@update/useUpdateState';
 import { ConnectionBar } from './components/ConnectionBar';
 import { GcsStatusCard } from './components/GcsStatusCard';
 import { AircraftStatusCard } from './components/AircraftStatusCard';
@@ -43,7 +44,7 @@ const BindingManager = lazy(() => import('./components/BindingManager').then(m =
 const HelpPage = lazy(() => import('./components/HelpPage').then(m => ({ default: m.HelpPage })));
 const OutagePanel = lazy(() => import('./components/OutagePanel').then(m => ({ default: m.OutagePanel })));
 const StarlinkPanel = lazy(() => import('./components/StarlinkPanel').then(m => ({ default: m.StarlinkPanel })));
-const UpdateModal = lazy(() => import('./components/UpdateModal').then(m => ({ default: m.UpdateModal })));
+const UpdateModal = lazy(() => import('@update/UpdateModal').then(m => ({ default: m.UpdateModal })));
 
 function Skeleton({ height = 'h-48' }: { height?: string }) {
   return (
@@ -88,39 +89,7 @@ function TrafficPanels({ status, lastUpdate }: { status: import('./api/types').S
 export default function App() {
   const { status, error, lastUpdate, refresh } = useStatus();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [updateTarget, setUpdateTarget] = useState('default');
-  // Latch: once we've seen update_available=true, keep showing banner
-  // until user dismisses (X button) or post-update reload clears it
-  const [updateSeen, setUpdateSeen] = useState<{ latest: string; branch: string } | null>(null);
-  const updateSeenRef = useRef(updateSeen);
-  updateSeenRef.current = updateSeen;
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  const [suppressBanner, setSuppressBanner] = useState(() => {
-    try { return sessionStorage.getItem('update-just-applied') === '1'; } catch { return false; }
-  });
-
-  useEffect(() => {
-    if (!status) return;
-    const v = status.version;
-    if (v.update_available && v.latest) {
-      setUpdateSeen({ latest: v.latest, branch: v.branch || 'main' });
-    } else if (updateSeenRef.current && !v.update_available && v.latest) {
-      setUpdateSeen(null);
-    }
-  }, [status]);
-
-  // Clear post-update suppression on first status poll.
-  // If no update pending: update succeeded, clear updateSeen too.
-  // If update still pending: new update or failed — let banner show.
-  useEffect(() => {
-    if (!suppressBanner || !status) return;
-    setSuppressBanner(false);
-    try { sessionStorage.removeItem('update-just-applied'); } catch {}
-    if (!status.version.update_available) {
-      setUpdateSeen(null);
-    }
-  }, [suppressBanner, status]);
+  const update = useUpdateState(status?.version);
 
   return (
     <>
@@ -130,30 +99,17 @@ export default function App() {
         onTabChange={setActiveTab}
         version={status?.version}
         system={status?.system}
-        onCheckResult={(r) => {
-          if (r.update_available && r.latest) {
-            setUpdateSeen({ latest: r.latest, branch: r.branch || 'main' });
-            setBannerDismissed(false);
-          } else {
-            setUpdateSeen(null);
-          }
-        }}
+        onCheckResult={update.handleCheckResult}
       />
 
-      {updateSeen && !bannerDismissed && !suppressBanner && (
+      {update.showBanner && update.updateSeen && (
         <UpdateBanner
           current={status?.version.current ?? ''}
-          latest={updateSeen.latest}
-          branch={updateSeen.branch}
-          onUpdate={() => { setUpdateTarget('default'); setUpdateModalOpen(true); }}
-          onDismiss={() => setBannerDismissed(true)}
-          onCheckResult={(r) => {
-            if (r.update_available && r.latest) {
-              setUpdateSeen({ latest: r.latest, branch: r.branch || 'main' });
-            } else {
-              setUpdateSeen(null);
-            }
-          }}
+          latest={update.updateSeen.latest}
+          branch={update.updateSeen.branch}
+          onUpdate={() => { update.setUpdateTarget('default'); update.setUpdateModalOpen(true); }}
+          onDismiss={update.dismissBanner}
+          onCheckResult={update.handleCheckResult}
         />
       )}
 
@@ -171,7 +127,7 @@ export default function App() {
               </span>
             </div>
             <button
-              onClick={() => { setUpdateTarget(status.aircraft.tailscale_ip || 'default'); setUpdateModalOpen(true); }}
+              onClick={() => { update.setUpdateTarget(status.aircraft.tailscale_ip || 'default'); update.setUpdateModalOpen(true); }}
               className="px-3 py-1 text-xs font-medium rounded-md bg-warning text-black hover:bg-warning/80 transition-colors"
             >
               Update Aircraft
@@ -183,10 +139,10 @@ export default function App() {
       {status && (
         <Suspense fallback={null}>
           <UpdateModal
-            open={updateModalOpen}
-            onClose={() => setUpdateModalOpen(false)}
-            status={status}
-            defaultTarget={updateTarget}
+            open={update.updateModalOpen}
+            onClose={() => update.setUpdateModalOpen(false)}
+            version={status.version}
+            defaultTarget={update.updateTarget}
           />
         </Suspense>
       )}

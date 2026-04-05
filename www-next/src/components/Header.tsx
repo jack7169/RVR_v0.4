@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { RefreshCw, HardDrive } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { checkUpdate, type CheckUpdateResponse } from '../api/client';
+import { checkUpdate } from '@update/api';
+import type { CheckUpdateResponse } from '@update/types';
+import { updateConfig } from '../updateConfig';
 
 export type AppTab = 'dashboard' | 'binding' | 'help';
 
@@ -34,7 +36,7 @@ export function Header({ connected, activeTab, onTabChange, version, system, onC
   const versionHash = version?.current && version.current !== 'unknown' ? version.current : null;
   const branch = version?.branch || 'main';
   const isDevBranch = branch !== 'main';
-  const repoUrl = 'https://github.com/jack7169/RVR_v0.4';
+  const repoUrl = updateConfig.repoUrl;
 
   const handleCheckUpdate = async () => {
     setChecking(true);

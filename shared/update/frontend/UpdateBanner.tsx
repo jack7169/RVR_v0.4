@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowUpCircle, X, RefreshCw } from 'lucide-react';
-import { checkUpdate, type CheckUpdateResponse } from '../api/client';
+import { checkUpdate } from './api';
+import type { CheckUpdateResponse } from './types';
 
 interface Props {
   current: string;

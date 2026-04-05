@@ -169,6 +169,7 @@ download_repo() {
         info "Existing installation found, pulling latest..."
         cd "$INSTALL_DIR" && git fetch --depth=1 origin "$REPO_BRANCH" 2>&1 || true
         git reset --hard "origin/$REPO_BRANCH" 2>&1 || true
+        git submodule update --init --recursive 2>/dev/null || true
         git reflog expire --expire=now --all 2>/dev/null
         git gc --prune=all -q 2>/dev/null
         ok "Updated to latest"
@@ -409,6 +410,7 @@ setup_git_repo() {
     }
     git checkout -b "$REPO_BRANCH" 2>/dev/null || true
     git reset --hard "origin/$REPO_BRANCH" 2>/dev/null || true
+    git submodule update --init --recursive 2>/dev/null || true
     # Compact objects to minimize flash usage
     git reflog expire --expire=now --all 2>/dev/null
     git gc --prune=all -q 2>/dev/null

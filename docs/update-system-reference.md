@@ -286,19 +286,29 @@ Critical issues discovered on BusyBox ash that affect both RVR and Starnav:
 
 ## 7. File Index
 
+### Shared Libraries (`shared/update/` — used by both RVR and Starnav)
+
 | File | What it does |
 |------|-------------|
-| `rvr:cmd_update()` | CLI update with shallow fetch, gc, space check, branch arg |
-| `rvr:cmd_branches()` | List remote branches |
-| `rvr` watchdog section | Dynamic log rotation, orphan killer, temp cleanup |
-| `install.sh` | Shallow fetch on install, saves branch config |
-| `www/cgi-bin/api.cgi` | update_local, update_remote, check_update, list_branches |
-| `www/cgi-bin/status.cgi` | Branch-aware version check via GitHub API |
+| `shared/update/backend/update-lib.sh` | Core update: space check, shallow fetch, reset, submodule update, gc, web UI install, post-apply hook |
+| `shared/update/backend/update-api.sh` | CGI handlers: update_devices, check_update, list_branches, get_update_log |
+| `shared/update/backend/update-version.sh` | Version check with GitHub API, 10-min cache, anti-false-positive mtime logic |
+| `shared/update/frontend/UpdateModal.tsx` | Branch selector + conditional device picker + progress log |
+| `shared/update/frontend/UpdateBanner.tsx` | Persistent update notification with re-check callback |
+| `shared/update/frontend/useUpdateState.ts` | Hook: update visibility latching, dismiss, post-update suppression |
+| `shared/update/frontend/api.ts` | updateDevices(), checkUpdate(), listBranches() |
+| `shared/update/frontend/types.ts` | VersionInfo, CheckUpdateResponse, BranchList, UpdateDevice |
+
+### Project-Specific Files
+
+| File | What it does |
+|------|-------------|
+| `robust_virtual_radio:cmd_update()` | Sources update-lib.sh, defines RVR hook (tap2tcp binary + bridge restart) |
+| `robust_virtual_radio:cmd_branches()` | Sources update-lib.sh, calls update_list_branches_cli |
+| `www-next/src/updateConfig.ts` | RVR config: project name, repo URL, device fetcher for multi-device updates |
+| `install.sh` | Shallow fetch + submodule init on install, saves branch config |
+| `www/cgi-bin/api.cgi` | Sources update-api.sh, routes update_devices/check_update/list_branches |
+| `www/cgi-bin/status.cgi` | Sources update-version.sh for version tracking |
 | `www/cgi-bin/discovery.cgi` | Exposes git_branch per device |
-| `www/cgi-bin/logs.cgi` | SSE with 5-min timeout + process group cleanup |
-| `www-next/src/api/types.ts` | TypeScript types for version.branch, peer.git_branch |
-| `www-next/src/api/client.ts` | updateLocal/Remote(branch?), listBranches(), checkUpdate() |
-| `www-next/src/components/Header.tsx` | branch:hash display + check button |
-| `www-next/src/components/UpdateBanner.tsx` | Persistent update notification |
-| `www-next/src/components/UpdateModal.tsx` | Branch selector + device selection + progress log |
+| `www-next/src/components/Header.tsx` | branch:hash display + check button (uses updateConfig.repoUrl) |
 | `www-next/src/components/BindingManager.tsx` | Branch/version on peer cards + mismatch warnings |

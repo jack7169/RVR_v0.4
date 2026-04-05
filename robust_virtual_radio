@@ -2050,156 +2050,70 @@ cmd_webui_remove() {
 # UPDATE
 #############################################
 cmd_update() {
-    local repo_dir=""
-    local script_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
-    local script_dir=$(dirname "$script_path")
-    if [ -d "$script_dir/.git" ]; then
-        repo_dir="$script_dir"
-    elif [ -d "/root/RVR_v0.4/.git" ]; then
-        repo_dir="/root/RVR_v0.4"
-    fi
+    # Configure shared update library
+    UPDATE_REPO_DIR="/root/RVR_v0.4"
+    UPDATE_CONFIG_DIR="$WEBUI_CONFIG_DIR"
+    UPDATE_WEBUI_ROOT="$WEBUI_ROOT"
+    UPDATE_CACHE_PREFIX="rvr"
+    UPDATE_REPO_PATH="jack7169/RVR_v0.4"
 
-    if [ -z "$repo_dir" ]; then
-        log_error "Cannot find git repository"
-        exit 1
-    fi
+    local script_path
+    script_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
+    local script_dir
+    script_dir=$(dirname "$script_path")
 
-    # Parse --branch argument (default: stored branch or main)
-    local branch="main"
-    [ -f "$WEBUI_CONFIG_DIR/branch" ] && branch=$(cat "$WEBUI_CONFIG_DIR/branch")
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --branch) branch="$2"; shift 2 ;;
-            *) shift ;;
-        esac
-    done
+    . "$script_dir/shared/update/backend/update-lib.sh"
 
-    # Pre-flight space check — abort if < 30MB free on /overlay
-    local free_kb=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
-    if [ "${free_kb:-999999}" -lt 30720 ]; then
-        log_error "Not enough space for update (${free_kb}KB free, need 30MB)"
-        echo "  Free /overlay space: ${free_kb}KB — minimum 30MB required"
-        echo "  Run 'rvr capture stop' and delete old captures to free space"
-        exit 1
-    fi
+    # RVR-specific post-update hook
+    update_post_apply() {
+        local repo_dir="$1"
+        local new_hash="$2"
+        local branch="$3"
 
-    echo "Updating RVR from GitHub..."
-    echo "  Repository: $repo_dir"
-    echo "  Branch: $branch"
+        # Re-point CLI symlink (handles script renames across updates)
+        local script_name
+        script_name=$(basename "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+        if [ -f "$repo_dir/$script_name" ]; then
+            chmod +x "$repo_dir/$script_name"
+            ln -sf "$repo_dir/$script_name" /usr/bin/rvr
+        fi
 
-    local old_hash=$(cd "$repo_dir" && git rev-parse --short HEAD 2>/dev/null)
-    echo "  Current version: $old_hash"
+        # Update tap2tcp binary if new one available
+        if [ -f "$repo_dir/packages/common/tap2tcp-aarch64" ]; then
+            cp "$repo_dir/packages/common/tap2tcp-aarch64" "$TAP2TCP_BINARY"
+            chmod +x "$TAP2TCP_BINARY"
+            log_info "Updated tap2tcp binary"
+        fi
 
-    cd "$repo_dir"
-    # Shallow fetch — only latest commit, saves ~90% storage vs full history
-    git fetch --depth=1 origin "$branch" 2>&1 || { log_error "Failed to fetch branch '$branch'"; exit 1; }
-
-    local new_hash=$(git rev-parse --short "origin/$branch" 2>/dev/null)
-
-    # Warn if fetched version differs from what UI reported as latest
-    local expected=$(cat /tmp/rvr-latest-version 2>/dev/null)
-    if [ -n "$expected" ] && [ -n "$new_hash" ] && [ "$new_hash" != "$expected" ]; then
-        echo "  Note: fetched $new_hash (UI showed $expected — CI may have pushed since check)"
-    fi
-    if [ "$old_hash" = "$new_hash" ] && [ "$(cat "$WEBUI_CONFIG_DIR/branch" 2>/dev/null)" = "$branch" ]; then
-        echo "  Already up to date ($old_hash on $branch)"
-        rm -f /tmp/rvr-latest-version
-        return 0
-    fi
-
-    git reset --hard "origin/$branch" 2>&1 || { log_error "Failed to apply updates"; exit 1; }
-
-    # Re-point symlink before anything else (handles script renames across updates)
-    local script_name
-    script_name=$(basename "$(readlink -f "$0" 2>/dev/null || echo "$0")")
-    if [ -f "$repo_dir/$script_name" ]; then
-        chmod +x "$repo_dir/$script_name"
-        ln -sf "$repo_dir/$script_name" /usr/bin/rvr
-    fi
-    chmod +x "$repo_dir/www/cgi-bin/"*.cgi 2>/dev/null
-
-    # Clean stale git objects to reclaim storage
-    git reflog expire --expire=now --all 2>/dev/null
-    git gc --prune=all -q 2>/dev/null
-
-    # Update tap2tcp binary if new one available
-    if [ -f "$repo_dir/packages/common/tap2tcp-aarch64" ]; then
-        cp "$repo_dir/packages/common/tap2tcp-aarch64" "$TAP2TCP_BINARY"
-        chmod +x "$TAP2TCP_BINARY"
-        log_info "Updated tap2tcp binary"
-    fi
-
-    echo "  Updated: $old_hash -> $new_hash ($branch)"
-
-    if [ -d "$WEBUI_ROOT" ]; then
-        log_info "Updating web UI files..."
-        local src_www="$repo_dir/www"
-        if [ -d "$src_www" ]; then
-            cp "$src_www/index.html" "$WEBUI_ROOT/"
-            # Clean old assets before copying new — prevents stale chunk accumulation
-            if [ -d "$src_www/assets" ]; then
-                rm -rf "$WEBUI_ROOT/assets"
-                mkdir -p "$WEBUI_ROOT/assets"
-                cp -r "$src_www/assets/"* "$WEBUI_ROOT/assets/"
+        # Restart bridge if it was running — invoke the NEW binary on disk
+        # (this process is running the old pre-update code from memory)
+        if pgrep tap2tcp >/dev/null 2>&1; then
+            log_info "Restarting bridge to apply updates..."
+            if ! /usr/bin/rvr restart 2>&1; then
+                log_warn "Bridge restart failed after update"
+                echo ""
+                echo "Update applied but bridge failed to restart. ($branch:$new_hash)"
+                return 1
             fi
-            cp "$src_www/cgi-bin/"*.cgi "$src_www/cgi-bin/"*.py "$WEBUI_ROOT/cgi-bin/"
-            chmod +x "$WEBUI_ROOT/cgi-bin/"*.cgi "$WEBUI_ROOT/cgi-bin/"*.py 2>/dev/null
-            mkdir -p "$WEBUI_CONFIG_DIR"
-            echo "$new_hash" > "$WEBUI_CONFIG_DIR/version"
-            echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
-            rm -f /tmp/rvr-latest-version
-            log_info "Web UI updated"
         fi
-    else
-        # No web UI installed — still save version/branch
-        mkdir -p "$WEBUI_CONFIG_DIR"
-        echo "$new_hash" > "$WEBUI_CONFIG_DIR/version"
-        echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
-    fi
+    }
 
-    # Restart bridge if it was running — invoke the NEW binary on disk
-    # (this process is running the old pre-update code from memory)
-    if pgrep tap2tcp >/dev/null 2>&1; then
-        log_info "Restarting bridge to apply updates..."
-        if ! /usr/bin/rvr restart 2>&1; then
-            log_warn "Bridge restart failed after update"
-            echo ""
-            echo "Update applied but bridge failed to restart. ($branch:$new_hash)"
-            return 1
-        fi
-    fi
-
-    echo ""
-    echo "Update complete. ($branch:$new_hash)"
+    update_fetch_and_apply "$@"
 }
 
 #############################################
 # BRANCHES — list available remote branches
 #############################################
 cmd_branches() {
-    local repo_dir=""
-    local script_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
-    local script_dir=$(dirname "$script_path")
-    if [ -d "$script_dir/.git" ]; then
-        repo_dir="$script_dir"
-    elif [ -d "/root/RVR_v0.4/.git" ]; then
-        repo_dir="/root/RVR_v0.4"
-    fi
+    UPDATE_REPO_DIR="/root/RVR_v0.4"
+    UPDATE_CONFIG_DIR="$WEBUI_CONFIG_DIR"
+    UPDATE_CACHE_PREFIX="rvr"
 
-    if [ -z "$repo_dir" ]; then
-        log_error "Cannot find git repository"
-        exit 1
-    fi
+    local script_path
+    script_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
+    . "$(dirname "$script_path")/shared/update/backend/update-lib.sh"
 
-    local current=$(cat "$WEBUI_CONFIG_DIR/branch" 2>/dev/null || echo "main")
-    echo "Current branch: $current"
-    echo ""
-    echo "Available branches:"
-    cd "$repo_dir"
-    git ls-remote --heads origin 2>/dev/null | awk '{
-        branch = substr($2, 12)
-        print "  " branch
-    }'
+    update_list_branches_cli
 }
 
 #############################################

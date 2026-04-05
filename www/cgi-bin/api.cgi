@@ -1026,22 +1026,23 @@ remove_manual_peer() {
     json_response "{\"success\": true, \"message\": \"Peer IP removed\"}"
 }
 
-# Return current setup log contents (for polling during bind)
+# Setup log — delegates to shared update library
 get_setup_log() {
     echo "Content-Type: application/json"
     echo ""
-    local log_file="/tmp/rvr-setup.log"
-    if [ -f "$log_file" ]; then
-        local log_content
-        log_content=$(cat "$log_file" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' | awk '{printf "%s\\n", $0}')
-        printf '{"log":"%s"}\n' "$log_content"
-    else
-        printf '{"log":""}\n'
-    fi
+    get_update_log
     exit 0
 }
 
 SSH_KEY="/root/.ssh/id_dropbear"
+
+# Shared update library
+UPDATE_CONFIG_DIR="/etc/rvr"
+UPDATE_CLI_BIN="/usr/bin/rvr"
+UPDATE_CACHE_PREFIX="rvr"
+UPDATE_REPO_PATH="jack7169/RVR_v0.4"
+UPDATE_REPO_DIR="/root/RVR_v0.4"
+. "$UPDATE_REPO_DIR/shared/update/backend/update-api.sh"
 
 # Main request handling
 main() {
@@ -1297,111 +1298,7 @@ main() {
 }
 
 # ── Update Management ─────────────────────────────────────────────────
-
-# Update this device (runs rvr update in background)
-# Update one or more devices (remote IPs comma-separated, local last)
-update_devices_action() {
-    local remote_ips="$1"
-    local include_local="$2"
-    local branch="$3"
-
-    [ -z "$remote_ips" ] && [ "$include_local" != "true" ] && json_error "No devices selected"
-    [ "$include_local" = "true" ] && { [ -x "$RVR_BIN" ] || json_error "rvr not found"; }
-    [ -n "$remote_ips" ] && { [ -f "$SSH_KEY" ] || json_error "SSH key not available"; }
-
-    local branch_arg=""
-    [ -n "$branch" ] && branch_arg="--branch $branch"
-
-    : > /tmp/rvr-setup.log
-    (
-        rc=0
-
-        # Remote devices FIRST — VPN tunnel still intact before local bridge restart
-        if [ -n "$remote_ips" ]; then
-            while IFS= read -r ip; do
-                [ -z "$ip" ] && continue
-                echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
-                _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
-                [ $? -ne 0 ] && rc=1
-                echo "" >> /tmp/rvr-setup.log
-            done <<EOF
-$(echo "$remote_ips" | tr ',' '\n')
-EOF
-        fi
-
-        # Local LAST — bridge restart at end won't affect remote SSH
-        if [ "$include_local" = "true" ]; then
-            echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
-            "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
-            [ $? -ne 0 ] && rc=1
-        fi
-
-        rm -f "$DISCOVERY_CACHE"
-        run_discovery_scan >/dev/null 2>&1 &
-
-        echo "[UPDATE COMPLETE] exit_code=$rc" >> /tmp/rvr-setup.log
-    ) >> /tmp/rvr-setup.log 2>&1 &
-
-    json_response '{"success": true, "message": "Update started", "log_file": "/tmp/rvr-setup.log"}'
-}
-
-# Force-refresh version check (clears cache, re-fetches from GitHub)
-check_update_action() {
-    rm -f /tmp/rvr-latest-version
-
-    local current=""
-    [ -f /etc/rvr/version ] && current=$(cat /etc/rvr/version)
-
-    local branch=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
-
-    local latest=""
-    local repo_path=$(cat /etc/rvr/repo 2>/dev/null || echo "")
-    if [ -z "$repo_path" ]; then
-        repo_path="jack7169/RVR_v0.4"
-    fi
-
-    if [ -n "$repo_path" ]; then
-        latest=$(wget -q -T 3 -O - "https://api.github.com/repos/$repo_path/commits/$branch" 2>/dev/null | \
-            sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([a-f0-9]*\)".*/\1/p' | head -1)
-        [ -n "$latest" ] && latest=$(echo "$latest" | cut -c1-7)
-    fi
-
-    [ -n "$latest" ] && echo "$latest" > /tmp/rvr-latest-version
-
-    local update_available="false"
-    if [ -n "$current" ] && [ -n "$latest" ] && [ "$current" != "$latest" ]; then
-        update_available="true"
-    fi
-
-    json_response "{\"current\": \"${current:-unknown}\", \"latest\": \"${latest:-unknown}\", \"branch\": \"$branch\", \"update_available\": $update_available}"
-}
-
-# List available remote branches
-list_branches_action() {
-    local repo_dir=""
-    if [ -d "/root/RVR_v0.4/.git" ]; then
-        repo_dir="/root/RVR_v0.4"
-    fi
-    [ -z "$repo_dir" ] && json_error "Git repository not found"
-
-    local current=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
-
-    cd "$repo_dir"
-    local branches=$(git ls-remote --heads origin 2>/dev/null | awk '{print substr($2, 12)}')
-
-    echo "Content-Type: application/json"
-    echo ""
-    printf '{"current":"%s","branches":[' "$current"
-
-    local first=1
-    for b in $branches; do
-        [ -z "$b" ] && continue
-        [ $first -eq 0 ] && printf ','
-        printf '"%s"' "$b"
-        first=0
-    done
-    printf ']}'
-    exit 0
-}
+# Functions provided by shared/update/backend/update-api.sh:
+#   update_devices_action(), check_update_action(), list_branches_action(), get_update_log()
 
 main

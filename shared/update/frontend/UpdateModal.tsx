@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { Download, CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
-import type { StatusResponse } from '../api/types';
-import { updateDevices, listBranches, listAircraft } from '../api/client';
-import type { AircraftProfile } from '../api/types';
-import { Modal } from './ui/Modal';
-import { Button } from './ui/Button';
+import { updateDevices, listBranches } from './api';
+import { updateConfig, fetchUpdateDevices } from '@app/updateConfig';
+import { Modal } from '@app/components/ui/Modal';
+import { Button } from '@app/components/ui/Button';
+import type { VersionInfo, UpdateDevice } from './types';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  status: StatusResponse;
-  /** 'default' = pre-select GCS only; an IP string = pre-select that remote device only */
+  version: VersionInfo;
+  /** Pre-select a specific device by IP, or 'default' for local only */
   defaultTarget?: string;
 }
 
@@ -18,7 +18,7 @@ type Phase = 'select' | 'running' | 'done';
 
 const LOCAL_KEY = '__local__';
 
-export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }: Props) {
+export function UpdateModal({ open, onClose, version, defaultTarget = 'default' }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [devices, setDevices] = useState<{ id: string; label: string; ip?: string }[]>([]);
   const [phase, setPhase] = useState<Phase>('select');
@@ -31,7 +31,7 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  const currentBranch = status.version.branch || 'main';
+  const currentBranch = version.branch || 'main';
 
   useEffect(() => {
     if (!open) return;
@@ -41,31 +41,28 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
     setPartial(false);
     setSelectedBranch(currentBranch);
 
-    // Build device list: local + all bound profiles
+    // Build device list
     const devs: { id: string; label: string; ip?: string }[] = [
       { id: LOCAL_KEY, label: 'This device (GCS)' },
     ];
 
-    listAircraft()
-      .then(data => {
-        for (const [id, profile] of Object.entries(data.profiles) as [string, AircraftProfile][]) {
-          devs.push({ id, label: `${profile.name} (${profile.tailscale_ip})`, ip: profile.tailscale_ip });
-        }
-        setDevices(devs);
-
-        // Set default selection
-        if (defaultTarget === 'default') {
+    if (updateConfig.hasRemoteDevices) {
+      fetchUpdateDevices()
+        .then((remoteDevs: UpdateDevice[]) => {
+          for (const d of remoteDevs) {
+            devs.push(d);
+          }
+          setDevices(devs);
+          applyDefaultSelection(devs);
+        })
+        .catch(() => {
+          setDevices(devs);
           setSelected(new Set([LOCAL_KEY]));
-        } else {
-          // defaultTarget is an aircraft IP — find matching device
-          const match = devs.find(d => d.ip === defaultTarget);
-          setSelected(new Set(match ? [match.id] : [LOCAL_KEY]));
-        }
-      })
-      .catch(() => {
-        setDevices(devs);
-        setSelected(new Set([LOCAL_KEY]));
-      });
+        });
+    } else {
+      setDevices(devs);
+      setSelected(new Set([LOCAL_KEY]));
+    }
 
     // Fetch branches
     setLoadingBranches(true);
@@ -78,7 +75,17 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
       .finally(() => setLoadingBranches(false));
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentBranch, defaultTarget]);
+
+  function applyDefaultSelection(devs: { id: string; ip?: string }[]) {
+    if (defaultTarget === 'default') {
+      setSelected(new Set([LOCAL_KEY]));
+    } else {
+      const match = devs.find(d => d.ip === defaultTarget);
+      setSelected(new Set(match ? [match.id] : [LOCAL_KEY]));
+    }
+  }
 
   useEffect(() => {
     if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -107,7 +114,7 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
           setSuccess(exitZero);
           setPartial(!exitZero && updateLanded);
         }
-      } catch {}
+      } catch { /* polling failure is non-fatal */ }
     }, 2000);
   };
 
@@ -131,11 +138,10 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
     }
   };
 
-  const { version } = status;
   const isBranchSwitch = selectedBranch !== currentBranch;
 
   return (
-    <Modal open={open} onClose={onClose} title="Update RVR" wide>
+    <Modal open={open} onClose={onClose} title={updateConfig.modalTitle} wide>
       {phase === 'select' && (
         <div className="space-y-4">
           <div className="text-sm space-y-1">
@@ -181,21 +187,23 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
             )}
           </div>
 
-          {/* Device selection */}
-          <div className="border border-border rounded-lg p-3 space-y-2">
-            <div className="text-sm font-medium mb-2">Devices to update:</div>
-            {devices.map(dev => (
-              <label key={dev.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selected.has(dev.id)}
-                  onChange={() => toggleDevice(dev.id)}
-                  className="accent-accent"
-                />
-                {dev.label}
-              </label>
-            ))}
-          </div>
+          {/* Device selection — only shown when project supports remote devices */}
+          {updateConfig.hasRemoteDevices && (
+            <div className="border border-border rounded-lg p-3 space-y-2">
+              <div className="text-sm font-medium mb-2">Devices to update:</div>
+              {devices.map(dev => (
+                <label key={dev.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(dev.id)}
+                    onChange={() => toggleDevice(dev.id)}
+                    className="accent-accent"
+                  />
+                  {dev.label}
+                </label>
+              ))}
+            </div>
+          )}
 
           <div className="flex justify-end">
             <Button

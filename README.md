@@ -152,15 +152,20 @@ RVR_v0.4/
 │   └── Makefile            # Host + aarch64 cross-compile
 ├── robust_virtual_radio    # Main CLI script (~2400 lines, POSIX sh, role-aware)
 ├── install.sh              # Bootstrap installer for OpenWrt
+├── shared/update/          # Shared update libraries (used by both RVR and Starnav)
+│   ├── backend/            # POSIX sh: update-lib.sh, update-api.sh, update-version.sh
+│   └── frontend/           # React: UpdateModal, UpdateBanner, useUpdateState, api, types
 ├── www-next/               # React UI source (built by CI)
 │   └── src/
 │       ├── components/     # Dashboard, BindingManager, NetworkStats, LogViewer, HelpPage
 │       ├── api/            # TypeScript API client + types
 │       ├── hooks/          # useStatus (React Query), useNetHistory, useLogStream
+│       ├── updateConfig.ts # Project-specific update config (name, repo URL, device fetcher)
 │       └── lib/            # utils, zod schemas
 ├── www/                    # Built UI + CGI backend (deployed to device)
 │   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi, discovery.cgi, starlink_outages.py
 │   └── assets/             # Code-split JS/CSS chunks (committed by CI)
+├── starlink-grpc-tools/    # Starlink gRPC client (git submodule: sparky8512/starlink-grpc-tools)
 ├── packages/               # Offline .ipk bundle + tap2tcp binary
 ├── docs/                   # Technical reference docs (update system, etc.)
 └── .github/workflows/      # CI: build-tap2tcp.yml, build-ui.yml

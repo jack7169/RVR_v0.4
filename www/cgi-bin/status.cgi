@@ -402,50 +402,14 @@ OVERLAY_FREE=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
 MEM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null)
 MEM_AVAILABLE=$(awk '/MemAvailable/ {print $2}' /proc/meminfo 2>/dev/null)
 
-# Version tracking
-VERSION_CURRENT=$(cat /etc/rvr/version 2>/dev/null || echo "unknown")
-VERSION_BRANCH=$(cat /etc/rvr/branch 2>/dev/null || echo "main")
-VERSION_LATEST=""
-VERSION_UPDATE="false"
-REPO_PATH=$(cat /etc/rvr/repo 2>/dev/null || echo "")
-[ -z "$REPO_PATH" ] && REPO_PATH="jack7169/RVR_v0.4"
-
-if [ -n "$REPO_PATH" ] && [ "$VERSION_CURRENT" != "unknown" ]; then
-    CACHE_FILE="/tmp/rvr-latest-version"
-    CACHE_AGE=600  # 10 minutes
-    # Use cached value if fresh enough
-    if [ -f "$CACHE_FILE" ]; then
-        FILE_AGE=$(( $(date +%s) - $(date -r "$CACHE_FILE" +%s 2>/dev/null || echo 0) ))
-        if [ "$FILE_AGE" -lt "$CACHE_AGE" ]; then
-            VERSION_LATEST=$(cat "$CACHE_FILE" 2>/dev/null || echo "")
-        fi
-    fi
-    # Fetch from GitHub if cache miss (with 3s timeout to avoid blocking CGI)
-    if [ -z "$VERSION_LATEST" ]; then
-        VERSION_LATEST=$(wget -q -T 3 -O- "https://api.github.com/repos/$REPO_PATH/commits/$VERSION_BRANCH" 2>/dev/null | awk -F'"' '/"sha"/ {print substr($4,1,7); exit}')
-        if [ -n "$VERSION_LATEST" ]; then
-            echo "$VERSION_LATEST" > "$CACHE_FILE"
-        fi
-    fi
-    # Only show update if latest differs from current AND version file is older than cache
-    # This prevents false positives when we just updated (version file is newer than cache)
-    if [ -n "$VERSION_LATEST" ] && [ "$VERSION_LATEST" != "$VERSION_CURRENT" ]; then
-        VERSION_FILE="/etc/rvr/version"
-        if [ -f "$CACHE_FILE" ] && [ -f "$VERSION_FILE" ]; then
-            CACHE_MTIME=$(date -r "$CACHE_FILE" +%s 2>/dev/null || echo 0)
-            VERSION_MTIME=$(date -r "$VERSION_FILE" +%s 2>/dev/null || echo 0)
-            # If version file is newer than cache, we just updated — stale cache
-            if [ "$VERSION_MTIME" -gt "$CACHE_MTIME" ]; then
-                rm -f "$CACHE_FILE"
-                VERSION_LATEST="$VERSION_CURRENT"
-            else
-                VERSION_UPDATE="true"
-            fi
-        else
-            VERSION_UPDATE="true"
-        fi
-    fi
-fi
+# Version tracking (shared library)
+UPDATE_CONFIG_DIR="/etc/rvr"
+UPDATE_REPO_PATH="jack7169/RVR_v0.4"
+UPDATE_CACHE_PREFIX="rvr"
+# Source from repo dir — CGI scripts may be copied outside the repo tree
+_REPO_DIR="/root/RVR_v0.4"
+[ -f "$(dirname "$0")/../../shared/update/backend/update-version.sh" ] && _REPO_DIR="$(dirname "$0")/../.."
+. "$_REPO_DIR/shared/update/backend/update-version.sh"
 
 # Output JSON response
 cat << EOF

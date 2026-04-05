@@ -667,18 +667,27 @@ start_local_services() {
         return 1
     fi
 
-    local GCS_IP=$(get_local_tailscale_ip)
+    local local_ip=$(get_local_tailscale_ip)
 
-    # Update kcptun config with current IP
-    if [ -f /etc/kcptun/server.json ]; then
-        sed -i "s|\"listen\": \"[^\"]*:|\"listen\": \"$GCS_IP:|g" /etc/kcptun/server.json
+    # Detect role from installed init script (same pattern as status.cgi)
+    local kcptun_svc=""
+    if [ -f /etc/init.d/kcptun-server ]; then
+        kcptun_svc="kcptun-server"
+        [ -f /etc/kcptun/server.json ] && sed -i "s|\"listen\": \"[^\"]*:|\"listen\": \"$local_ip:|g" /etc/kcptun/server.json
+    elif [ -f /etc/init.d/kcptun-client ]; then
+        kcptun_svc="kcptun-client"
     fi
 
-    /etc/init.d/kcptun-server start 2>/dev/null || true
+    if [ -z "$kcptun_svc" ]; then
+        log_error "No kcptun service found"
+        return 1
+    fi
+
+    /etc/init.d/$kcptun_svc start 2>/dev/null || true
     sleep $KCPTUN_SETTLE_TIME
 
-    if ! pgrep -f kcptun-server > /dev/null 2>&1; then
-        log_error "kcptun-server failed to start"
+    if ! pgrep -f "$kcptun_svc" > /dev/null 2>&1; then
+        log_error "$kcptun_svc failed to start"
         return 1
     fi
 
@@ -710,7 +719,12 @@ start_aircraft_services() {
 stop_local_services() {
     log_info "Stopping local services..."
     /etc/init.d/tap2tcp stop 2>/dev/null || true
-    /etc/init.d/kcptun-server stop 2>/dev/null || true
+    # Stop whichever kcptun role is installed
+    if [ -f /etc/init.d/kcptun-server ]; then
+        /etc/init.d/kcptun-server stop 2>/dev/null || true
+    elif [ -f /etc/init.d/kcptun-client ]; then
+        /etc/init.d/kcptun-client stop 2>/dev/null || true
+    fi
     # Cleanup in case tap2tcp-down didn't run
     nft delete table bridge rvr_filter 2>/dev/null || true
     ip link set rvr_bridge nomaster 2>/dev/null || true
@@ -2059,6 +2073,12 @@ cmd_update() {
     git fetch --depth=1 origin "$branch" 2>&1 || { log_error "Failed to fetch branch '$branch'"; exit 1; }
 
     local new_hash=$(git rev-parse --short "origin/$branch" 2>/dev/null)
+
+    # Warn if fetched version differs from what UI reported as latest
+    local expected=$(cat /tmp/rvr-latest-version 2>/dev/null)
+    if [ -n "$expected" ] && [ -n "$new_hash" ] && [ "$new_hash" != "$expected" ]; then
+        echo "  Note: fetched $new_hash (UI showed $expected — CI may have pushed since check)"
+    fi
     if [ "$old_hash" = "$new_hash" ] && [ "$(cat "$WEBUI_CONFIG_DIR/branch" 2>/dev/null)" = "$branch" ]; then
         echo "  Already up to date ($old_hash on $branch)"
         rm -f /tmp/rvr-latest-version
@@ -2115,10 +2135,20 @@ cmd_update() {
         echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
     fi
 
-    local AIRCRAFT_IP=$(get_aircraft_ip 2>/dev/null)
-    if [ -n "$AIRCRAFT_IP" ] && pgrep tap2tcp >/dev/null 2>&1; then
+    # Restart bridge if it was running (role-agnostic — works on both GCS and aircraft)
+    if pgrep tap2tcp >/dev/null 2>&1; then
         log_info "Restarting bridge to apply updates..."
-        if ! cmd_restart "$AIRCRAFT_IP"; then
+        stop_local_services
+        sleep $SERVICE_RESTART_DELAY
+        start_local_services
+        local restart_rc=$?
+        # Start remote peer services + wait for bridge only if we know the peer
+        local peer_ip=$(get_aircraft_ip 2>/dev/null)
+        if [ -n "$peer_ip" ]; then
+            start_aircraft_services "$peer_ip" 2>/dev/null || true
+            wait_for_bridge || restart_rc=1
+        fi
+        if [ $restart_rc -ne 0 ]; then
             log_warn "Bridge restart failed after update"
             echo ""
             echo "Update applied but bridge failed to restart. ($branch:$new_hash)"

@@ -10,6 +10,7 @@ export default defineConfig({
       '@update': path.resolve(__dirname, 'src/shared-update'),
       '@app': path.resolve(__dirname, 'src'),
     },
+    preserveSymlinks: true,
   },
   server: {
     proxy: {

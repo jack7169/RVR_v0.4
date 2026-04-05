@@ -197,9 +197,9 @@ function BindModal({
 // ── Peer Card ─────────────────────────────────────────────────────────
 
 function PeerCard({
-  peer, selfVersion, selfBranch, onBind, onReconnect,
+  peer, selfVersion, selfBranch, onBind, onReconnect, reconnecting,
 }: {
-  peer: DiscoveredPeer; selfVersion?: string; selfBranch?: string; onBind: () => void; onReconnect: () => void;
+  peer: DiscoveredPeer; selfVersion?: string; selfBranch?: string; onBind: () => void; onReconnect: () => void; reconnecting?: boolean;
 }) {
   const isOnline = peer.connection_mode === 'online';
   const modeColor = isOnline ? 'text-success'
@@ -269,7 +269,7 @@ function PeerCard({
               <span className="text-xs text-success flex items-center gap-1">
                 Bound: {peer.bound_profile_name}
               </span>
-              <Button size="sm" variant="ghost" onClick={onReconnect}>Reconnect</Button>
+              <Button size="sm" variant="ghost" loading={reconnecting} onClick={onReconnect}>Reconnect</Button>
             </div>
           ) : (
             <Button size="sm" variant="primary" onClick={onBind} disabled={peer.connection_mode === 'offline'}>
@@ -581,6 +581,10 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
   const [bindPeer, setBindPeer] = useState<DiscoveredPeer | null>(null);
   const [loading, setLoading] = useState(true);
   const [unbinding, setUnbinding] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState<string | null>(null);
+  const [activating, setActivating] = useState<string | null>(null);
+  const [addingPeer, setAddingPeer] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [manualIp, setManualIp] = useState('');
   const [settingsKey, setSettingsKey] = useState(0);
   const { toast } = useToast();
@@ -608,6 +612,7 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
   }, [loadData]);
 
   const handleReconnect = async (profileId: string) => {
+    setReconnecting(profileId);
     try {
       const res = await connectAircraft(profileId);
       if (res.success) {
@@ -618,10 +623,13 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
       }
     } catch {
       toast('Reconnect failed', 'error');
+    } finally {
+      setReconnecting(null);
     }
   };
 
   const handleSetActive = async (id: string) => {
+    setActivating(id);
     try {
       await setActiveAircraft(id);
       toast('Aircraft activated', 'success');
@@ -629,6 +637,8 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
       onRefresh();
     } catch {
       toast('Failed to activate', 'error');
+    } finally {
+      setActivating(null);
     }
   };
 
@@ -712,12 +722,14 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
             e.preventDefault();
             const ipResult = vpnIpSchema.safeParse(manualIp);
             if (!ipResult.success) { toast(ipResult.error.issues[0].message, 'error'); return; }
+            setAddingPeer(true);
             try {
               await addPeerIp(manualIp);
               toast('Peer added, refreshing...', 'success');
               setManualIp('');
               loadData();
             } catch { toast('Failed to add peer', 'error'); }
+            finally { setAddingPeer(false); }
           }}>
             <input
               value={manualIp}
@@ -725,7 +737,7 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
               placeholder="100.x.x.x"
               className="w-32 bg-bg-input border border-border rounded-lg px-2 py-1 text-xs font-mono text-text-primary"
             />
-            <Button size="sm" variant="ghost" type="submit">Add Peer</Button>
+            <Button size="sm" variant="ghost" type="submit" loading={addingPeer}>Add Peer</Button>
           </form>
         </div>
 
@@ -744,6 +756,7 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
               onReconnect={() => {
                 if (peer.bound_profile_id) handleReconnect(peer.bound_profile_id);
               }}
+              reconnecting={!!peer.bound_profile_id && reconnecting === peer.bound_profile_id}
             />
           ))}
         </div>
@@ -841,10 +854,14 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                     Branch mismatch: GCS on <code>{selfPeer.git_branch}</code>, Aircraft on <code>{aircraftPeer.git_branch}</code>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
-                    <Button size="sm" variant="danger" onClick={() => {
-                      import('../api/client').then(({ updateRemote }) => {
-                        updateRemote(activeProfile.tailscale_ip, selfPeer!.git_branch);
-                      });
+                    <Button size="sm" variant="danger" loading={syncing} onClick={async () => {
+                      setSyncing(true);
+                      try {
+                        const { updateRemote } = await import('../api/client');
+                        const res = await updateRemote(activeProfile.tailscale_ip, selfPeer!.git_branch);
+                        toast(res.success ? 'Aircraft sync started' : (res.error || 'Sync failed'), res.success ? 'success' : 'error');
+                      } catch { toast('Sync failed', 'error'); }
+                      finally { setSyncing(false); }
                     }}>
                       Sync Aircraft
                     </Button>
@@ -862,10 +879,14 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                     Version mismatch: GCS <code>{selfPeer.git_version.slice(0, 7)}</code> ≠ Aircraft <code>{aircraftPeer.git_version.slice(0, 7)}</code>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
-                    <Button size="sm" variant="warning" onClick={() => {
-                      import('../api/client').then(({ updateRemote }) => {
-                        updateRemote(activeProfile.tailscale_ip);
-                      });
+                    <Button size="sm" variant="warning" loading={syncing} onClick={async () => {
+                      setSyncing(true);
+                      try {
+                        const { updateRemote } = await import('../api/client');
+                        const res = await updateRemote(activeProfile.tailscale_ip);
+                        toast(res.success ? 'Aircraft update started' : (res.error || 'Update failed'), res.success ? 'success' : 'error');
+                      } catch { toast('Update failed', 'error'); }
+                      finally { setSyncing(false); }
                     }}>
                       Update Aircraft
                     </Button>
@@ -875,7 +896,7 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
 
               {/* Actions */}
               <div className="flex justify-center gap-2 mt-3">
-                <Button size="sm" variant="ghost" onClick={() => handleReconnect(profiles.active)}>Reconnect</Button>
+                <Button size="sm" variant="ghost" loading={reconnecting === profiles.active} onClick={() => handleReconnect(profiles.active)}>Reconnect</Button>
                 <Button size="sm" variant="danger" loading={unbinding === profiles.active} onClick={() => handleDelete(profiles.active)}>Unbind</Button>
               </div>
 
@@ -893,7 +914,7 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                           <span className="text-xs font-mono text-text-secondary">{profile.tailscale_ip}</span>
                         </div>
                         <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => handleSetActive(id)}>Activate</Button>
+                          <Button size="sm" variant="ghost" loading={activating === id} onClick={() => handleSetActive(id)}>Activate</Button>
                           <Button size="sm" variant="danger" loading={unbinding === id} onClick={() => handleDelete(id)}>Remove</Button>
                         </div>
                       </div>

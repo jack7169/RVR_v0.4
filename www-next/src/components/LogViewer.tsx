@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Pause, Play, Trash2, Maximize2, Minimize2, Copy, Search } from 'lucide-react';
+import { Pause, Play, Trash2, Maximize2, Minimize2, Copy, Check, Search } from 'lucide-react';
 import { useLogStream } from '../hooks/useLogStream';
 import { cn } from '../lib/utils';
 
@@ -25,6 +25,7 @@ export function LogViewer() {
     new Set(['error', 'warn', 'info', 'debug']),
   );
   const [showSearch, setShowSearch] = useState(false);
+  const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const toggleLevel = (level: LogLevel) => {
@@ -52,6 +53,8 @@ export function LogViewer() {
       .map(l => `${l.timestamp} [${l.level}] [${l.source}] ${l.message}`)
       .join('\n');
     navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   }, [filteredLogs]);
 
   return (
@@ -92,8 +95,8 @@ export function LogViewer() {
           <button onClick={() => setShowSearch(s => !s)} className="p-1 text-text-secondary hover:text-text-primary" title="Search">
             <Search className="w-3.5 h-3.5" />
           </button>
-          <button onClick={handleCopy} className="p-1 text-text-secondary hover:text-text-primary" title="Copy">
-            <Copy className="w-3.5 h-3.5" />
+          <button onClick={handleCopy} className={cn('p-1 transition-colors', copied ? 'text-success' : 'text-text-secondary hover:text-text-primary')} title="Copy">
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
           <button onClick={togglePause} className="p-1 text-text-secondary hover:text-text-primary" title={paused ? 'Resume' : 'Pause'}>
             {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}

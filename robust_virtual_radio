@@ -1425,10 +1425,12 @@ chmod +x /etc/init.d/tap2tcp'
 #############################################
 cmd_start_internal() {
     local AIRCRAFT_IP="$1"
+    local rc=0
     echo "[*] Starting GCS services..."
-    start_local_services
+    start_local_services || rc=1
     [ -n "$AIRCRAFT_IP" ] && { echo "[*] Starting Aircraft services..."; start_aircraft_services "$AIRCRAFT_IP"; }
     echo "[*] Services started."
+    return $rc
 }
 
 cmd_start() { cmd_start_internal "$(require_aircraft_ip "$1")"; }
@@ -1446,8 +1448,10 @@ cmd_restart() {
     cmd_stop_internal "$AIRCRAFT_IP"
     sleep $SERVICE_RESTART_DELAY
     cmd_start_internal "$AIRCRAFT_IP"
+    local rc=$?
     wait_for_bridge
     cmd_status
+    return $rc
 }
 
 #############################################
@@ -2115,7 +2119,10 @@ cmd_update() {
     if [ -n "$AIRCRAFT_IP" ] && pgrep tap2tcp >/dev/null 2>&1; then
         log_info "Restarting bridge to apply updates..."
         if ! cmd_restart "$AIRCRAFT_IP"; then
-            log_warn "Bridge restart failed — may need manual restart"
+            log_warn "Bridge restart failed after update"
+            echo ""
+            echo "Update applied but bridge failed to restart. ($branch:$new_hash)"
+            return 1
         fi
     fi
 

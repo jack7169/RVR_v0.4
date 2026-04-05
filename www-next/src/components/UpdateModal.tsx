@@ -24,6 +24,7 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
   const [phase, setPhase] = useState<Phase>('select');
   const [log, setLog] = useState('');
   const [success, setSuccess] = useState(false);
+  const [partial, setPartial] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [loadingBranches, setLoadingBranches] = useState(false);
@@ -37,6 +38,7 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
     setPhase('select');
     setLog('');
     setSuccess(false);
+    setPartial(false);
     setSelectedBranch(currentBranch);
 
     // Build device list: local + all bound profiles
@@ -100,7 +102,10 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
         if (data.log?.includes('[UPDATE COMPLETE]')) {
           if (pollRef.current) clearInterval(pollRef.current);
           setPhase('done');
-          setSuccess(data.log.includes('exit_code=0'));
+          const exitZero = data.log.includes('exit_code=0');
+          const updateLanded = /Updated:.*->/.test(data.log) || data.log.includes('Already up to date');
+          setSuccess(exitZero);
+          setPartial(!exitZero && updateLanded);
         }
       } catch {}
     }, 2000);
@@ -226,20 +231,20 @@ export function UpdateModal({ open, onClose, status, defaultTarget = 'default' }
 
       {phase === 'done' && (
         <div className="space-y-3">
-          <div className={`flex items-center gap-2 text-sm ${success ? 'text-success' : 'text-error'}`}>
-            {success ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-            {success ? 'Update complete!' : 'Update failed'}
+          <div className={`flex items-center gap-2 text-sm ${success ? 'text-success' : partial ? 'text-warning' : 'text-error'}`}>
+            {success ? <CheckCircle2 className="w-4 h-4" /> : partial ? <AlertTriangle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+            {success ? 'Update complete!' : partial ? 'Update applied with errors — check bridge status' : 'Update failed'}
           </div>
           <pre className="bg-bg-secondary rounded-lg p-3 text-xs max-h-64 overflow-y-auto font-mono whitespace-pre-wrap">
             {log}
           </pre>
-          {success && (
+          {(success || partial) && (
             <div className="text-xs text-text-secondary">
               Reload the page to use the updated web UI.
             </div>
           )}
           <div className="flex justify-end gap-2">
-            {success && (
+            {(success || partial) && (
               <Button variant="primary" size="sm" onClick={() => {
                 try { sessionStorage.setItem('update-just-applied', '1'); } catch {}
                 window.location.reload();

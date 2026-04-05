@@ -197,6 +197,72 @@ enumerate_wg_peers() {
     ip route show | awk '/^100\.[0-9.]+ dev/ { print $1"|0|0|0" }'
 }
 
+# ── VPN mode detection (direct vs relay) ─────────────────────────────
+
+# Cache the full Tailscale status JSON (one API call per scan, not N)
+_TS_STATUS_JSON=""
+_ts_status_fetch() {
+    [ -n "$_TS_STATUS_JSON" ] && return
+    for s in /var/run/tailscale/tailscaled.sock /run/tailscale/tailscaled.sock; do
+        if [ -S "$s" ]; then
+            _TS_STATUS_JSON=$(curl -s --max-time 2 --unix-socket "$s" \
+                "http://local-tailscaled.sock/localapi/v0/status" 2>/dev/null)
+            return
+        fi
+    done
+}
+
+# Get VPN connection mode for a peer IP.
+# Output: "direct" or "relay|<relay_name>" or "idle" or "unknown"
+get_vpn_mode() {
+    local peer_ip="$1"
+
+    # Method 1: kernel WireGuard handshake
+    local wg_iface
+    wg_iface=$(detect_wg_interface)
+    if [ -n "$wg_iface" ] && command -v wg >/dev/null 2>&1; then
+        local wg_line
+        wg_line=$(wg show "$wg_iface" dump 2>/dev/null | awk -v ip="$peer_ip" '$4 ~ ip {print}')
+        if [ -n "$wg_line" ]; then
+            local hs
+            hs=$(echo "$wg_line" | awk -F'	' '{print $5}')
+            local now
+            now=$(date +%s)
+            if [ "$hs" -gt 0 ] 2>/dev/null && [ $((now - hs)) -lt 180 ]; then
+                echo "direct"
+                return
+            fi
+        fi
+    fi
+
+    # Method 2: Tailscale local API (cached)
+    _ts_status_fetch
+    if [ -n "$_TS_STATUS_JSON" ]; then
+        local peer_block
+        peer_block=$(echo "$_TS_STATUS_JSON" | awk -v ip="$peer_ip" '
+            /\"'"$peer_ip"'\"/ { found=1 }
+            found { lines[NR] = $0 }
+            found && /\}/ && !/\{/ { for (i in lines) print lines[i]; exit }
+        ')
+        if [ -n "$peer_block" ]; then
+            local curaddr
+            curaddr=$(echo "$peer_block" | sed -n 's/.*"CurAddr"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            if [ -n "$curaddr" ]; then
+                echo "direct"
+                return
+            fi
+            local relay_name
+            relay_name=$(echo "$peer_block" | sed -n 's/.*"Relay"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            if [ -n "$relay_name" ]; then
+                echo "relay|$relay_name"
+                return
+            fi
+        fi
+    fi
+
+    echo "unknown"
+}
+
 # Probe a peer's discovery endpoint, return JSON or empty
 probe_peer() {
     local ip="$1"
@@ -320,6 +386,13 @@ run_discovery_scan() {
             [ -n "$bound_name" ] && printf '"bound_profile_name":"%s",' "$bound_name"
             printf '"git_version":"%s",' "${gitver:-unknown}"
             printf '"git_branch":"%s",' "${gitbranch:-main}"
+            local vpn_info
+            vpn_info=$(get_vpn_mode "$ip")
+            local vpn_mode="${vpn_info%%|*}"
+            local vpn_relay=""
+            case "$vpn_info" in *"|"*) vpn_relay="${vpn_info#*|}" ;; esac
+            printf '"vpn_mode":"%s",' "$vpn_mode"
+            printf '"relay":"%s",' "$vpn_relay"
             printf '"wg_rx_bytes":%s,' "${rx:-0}"
             printf '"wg_tx_bytes":%s,' "${tx:-0}"
             printf '"wg_last_handshake":%s' "${handshake:-0}"

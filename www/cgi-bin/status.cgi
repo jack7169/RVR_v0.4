@@ -246,7 +246,9 @@ if [ -n "$AIRCRAFT_IP" ]; then
                     found && /\}/ && !/\{/ { for (i in lines) print lines[i]; exit }
                 ')
             if [ -n "$PEER_BLOCK" ]; then
-                # Check for Relay field (indicates relayed connection)
+                # CurAddr is non-empty when direct (e.g. "1.2.3.4:41641"), empty when relayed.
+                # Relay field persists the DERP region name even after upgrading to direct.
+                PEER_CURADDR=$(echo "$PEER_BLOCK" | sed -n 's/.*"CurAddr"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
                 PEER_RELAY=$(echo "$PEER_BLOCK" | sed -n 's/.*"Relay"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
                 PEER_RX=$(echo "$PEER_BLOCK" | sed -n 's/.*"RxBytes"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
                 PEER_TX=$(echo "$PEER_BLOCK" | sed -n 's/.*"TxBytes"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')
@@ -254,7 +256,9 @@ if [ -n "$AIRCRAFT_IP" ]; then
                 [ -n "$PEER_RX" ] && TS_PEER_RX="$PEER_RX"
                 [ -n "$PEER_TX" ] && TS_PEER_TX="$PEER_TX"
 
-                if [ -n "$PEER_RELAY" ]; then
+                if [ -n "$PEER_CURADDR" ]; then
+                    TS_PEER_MODE="direct"
+                elif [ -n "$PEER_RELAY" ]; then
                     TS_PEER_MODE="relay"
                     TS_PEER_RELAY="$PEER_RELAY"
                 else

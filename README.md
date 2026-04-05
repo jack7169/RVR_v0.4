@@ -9,12 +9,12 @@ Multi-stream Layer 2 bridge for BVLOS remotely piloted aircraft over Starlink sa
 - **Link quality monitoring** — Starlink-style outage panel with KCPtun retransmit tracking, timeline, uptime %
 - **Latency thresholds** — soft/hard drop at 1s/2s prevents stale data from consuming bandwidth
 - **Web UI with binding management** — discover VPN peers, one-click aircraft binding with real-time setup logs
-- **VPN-agnostic peer discovery** — WireGuard peer enumeration + HTTP probes, works on Tailscale/Headscale/raw WG
+- **VPN-agnostic peer discovery** — WireGuard peer enumeration + HTTP probes, per-peer direct/relay detection, works on Tailscale/Headscale/raw WG
 - **Speed test + packet storm** — iperf3 TCP/UDP through the bridge (not WAN), with SSE live streaming and pre/post error checking
 - **Network charts** — recharts area charts with server-side 6h history, instant time window switching
 - **Link profiles** — presets for Starlink Direct (15/150Mbps) and Relay (5/5Mbps) with auto buffer computation
 - **Built-in documentation** — Help tab with quick start guide, link tuning reference, troubleshooting
-- **Update management** — one-click update from web UI, branch switching for dev testing, remote aircraft update via SSH
+- **Update management** — multi-device update from web UI (N devices at once), branch switching for dev testing, remote update via SSH
 - **Storage-safe updates** — shallow git fetch, asset cleanup, git gc, pre-flight space check (aborts if < 30MB free)
 - **Modern UI stack** — React 19, Radix UI, Sonner toasts, lucide icons, lazy loading with code splitting
 
@@ -109,12 +109,12 @@ The control panel runs on port 8081 with three tabs:
 - File manager with relative timestamps and download/delete
 
 ### Binding
-- **Network Discovery** — auto-discovers VPN peers via WireGuard + HTTP probes
+- **Network Discovery** — auto-discovers VPN peers via WireGuard + HTTP probes, per-peer direct/relay mode
 - **Bound Aircraft** — manage profiles with activate/connect/remove
 - **Link Settings** — KCPtun parameter editor with detailed hover help and Starlink preset
 - **Add Peer** — manually enter IPs for devices not auto-discovered
 - Version and branch mismatch warnings between GCS and aircraft
-- **Update Management** — persistent update banner, one-click update modal with branch selector, remote update, version display in header
+- **Update Management** — persistent update banner, multi-device update modal with branch selector, version display in header
 
 ### Help
 - **Quick Start** — step-by-step install, bind, verify, switch aircraft

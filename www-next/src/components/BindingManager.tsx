@@ -235,7 +235,14 @@ function PeerCard({
 
       <div className="flex items-center justify-between text-xs">
         <span className="font-mono text-text-secondary">{peer.ip}</span>
-        <span className={modeColor}>{peer.connection_mode}</span>
+        <div className="flex items-center gap-2">
+          {peer.vpn_mode && peer.vpn_mode !== 'unknown' && !peer.is_self && (
+            <span className={peer.vpn_mode === 'direct' ? 'text-success' : peer.vpn_mode === 'relay' ? 'text-warning' : 'text-text-secondary'}>
+              {peer.vpn_mode}{peer.relay ? ` (${peer.relay})` : ''}
+            </span>
+          )}
+          <span className={modeColor}>{peer.connection_mode}</span>
+        </div>
       </div>
 
       <div className="flex items-center justify-between text-xs">
@@ -818,6 +825,14 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                   )}>
                     {isLinked ? 'LINKED' : 'DOWN'}
                   </span>
+                  {aircraftPeer?.vpn_mode && aircraftPeer.vpn_mode !== 'unknown' && (
+                    <span className={cn(
+                      'text-[10px]',
+                      aircraftPeer.vpn_mode === 'direct' ? 'text-success' : aircraftPeer.vpn_mode === 'relay' ? 'text-warning' : 'text-text-secondary',
+                    )}>
+                      {aircraftPeer.vpn_mode}{aircraftPeer.relay ? ` (${aircraftPeer.relay})` : ''}
+                    </span>
+                  )}
                   <div className={cn(
                     'w-16 h-0.5 rounded-full',
                     isLinked ? 'bg-success' : 'bg-error/50',

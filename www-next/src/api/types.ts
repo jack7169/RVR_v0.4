@@ -162,6 +162,8 @@ export interface DiscoveredPeer {
   is_bound: boolean;
   bound_profile_id?: string;
   bound_profile_name?: string;
+  vpn_mode?: 'direct' | 'relay' | 'idle' | 'unknown';
+  relay?: string;
   wg_rx_bytes: number;
   wg_tx_bytes: number;
   wg_last_handshake: number;

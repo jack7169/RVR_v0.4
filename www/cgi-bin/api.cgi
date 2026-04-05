@@ -1318,13 +1318,15 @@ update_devices_action() {
 
         # Remote devices FIRST — VPN tunnel still intact before local bridge restart
         if [ -n "$remote_ips" ]; then
-            echo "$remote_ips" | tr ',' '\n' | while IFS= read -r ip; do
+            while IFS= read -r ip; do
                 [ -z "$ip" ] && continue
                 echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
                 _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
                 [ $? -ne 0 ] && rc=1
                 echo "" >> /tmp/rvr-setup.log
-            done
+            done <<EOF
+$(echo "$remote_ips" | tr ',' '\n')
+EOF
         fi
 
         # Local LAST — bridge restart at end won't affect remote SSH

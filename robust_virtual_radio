@@ -1449,7 +1449,7 @@ cmd_restart() {
     sleep $SERVICE_RESTART_DELAY
     cmd_start_internal "$AIRCRAFT_IP"
     local rc=$?
-    wait_for_bridge
+    wait_for_bridge || rc=1
     cmd_status
     return $rc
 }

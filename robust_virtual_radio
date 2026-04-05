@@ -72,6 +72,13 @@ STATS_FILE="/tmp/tap2tcp.stats"
 SSH_KEY="/root/.ssh/id_dropbear"
 SSH_PUBKEY="/root/.ssh/id_dropbear.pub"
 
+# Detect local role from installed init scripts (same pattern as status.cgi)
+get_local_role() {
+    if [ -f /etc/init.d/kcptun-server ]; then echo "gcs"
+    elif [ -f /etc/init.d/kcptun-client ]; then echo "aircraft"
+    else echo "unknown"; fi
+}
+
 #############################################
 # OPKG FEED SETUP
 #############################################
@@ -1438,16 +1445,20 @@ chmod +x /etc/init.d/tap2tcp'
 # START/STOP/RESTART
 #############################################
 cmd_start_internal() {
-    local AIRCRAFT_IP="$1"
+    local peer_ip="$1"
+    local role=$(get_local_role)
     local rc=0
-    echo "[*] Starting GCS services..."
+    echo "[*] Starting local services ($role)..."
     start_local_services || rc=1
-    [ -n "$AIRCRAFT_IP" ] && { echo "[*] Starting Aircraft services..."; start_aircraft_services "$AIRCRAFT_IP"; }
+    if [ -n "$peer_ip" ]; then
+        echo "[*] Starting remote peer services..."
+        start_aircraft_services "$peer_ip" || true
+    fi
     echo "[*] Services started."
     return $rc
 }
 
-cmd_start() { cmd_start_internal "$(require_aircraft_ip "$1")"; }
+cmd_start() { cmd_start_internal "$(get_aircraft_ip "$1" 2>/dev/null)"; }
 
 cmd_stop_internal() {
     local AIRCRAFT_IP="$1"
@@ -1458,12 +1469,15 @@ cmd_stop_internal() {
 cmd_stop() { cmd_stop_internal "$(get_aircraft_ip "$1")"; }
 
 cmd_restart() {
-    local AIRCRAFT_IP=$(require_aircraft_ip "$1")
-    cmd_stop_internal "$AIRCRAFT_IP"
+    local peer_ip=$(get_aircraft_ip "$1" 2>/dev/null)
+    cmd_stop_internal "$peer_ip"
     sleep $SERVICE_RESTART_DELAY
-    cmd_start_internal "$AIRCRAFT_IP"
+    cmd_start_internal "$peer_ip"
     local rc=$?
-    wait_for_bridge || rc=1
+    # Wait for bridge only if we have a peer (full bridge requires both sides)
+    if [ -n "$peer_ip" ]; then
+        wait_for_bridge || rc=1
+    fi
     cmd_status
     return $rc
 }
@@ -1472,16 +1486,23 @@ cmd_restart() {
 # STATUS
 #############################################
 cmd_status() {
-    local GCS_IP=$(get_tailscale_ip_nowait)
+    local local_ip=$(get_tailscale_ip_nowait)
+    local role=$(get_local_role)
 
     echo "========================================="
     echo "  RVR Status (v0.4)"
     echo "========================================="
     echo ""
-    echo "[Tailscale] ${GCS_IP:-NOT READY}"
+    echo "[Tailscale] ${local_ip:-NOT READY}"
     echo ""
     echo "[Processes]"
-    pgrep -f kcptun-server >/dev/null && echo "  kcptun-server: RUNNING" || echo "  kcptun-server: STOPPED"
+    if [ "$role" = "gcs" ]; then
+        pgrep -f kcptun-server >/dev/null && echo "  kcptun-server: RUNNING" || echo "  kcptun-server: STOPPED"
+    elif [ "$role" = "aircraft" ]; then
+        pgrep -f kcptun-client >/dev/null && echo "  kcptun-client: RUNNING" || echo "  kcptun-client: STOPPED"
+    else
+        echo "  kcptun: UNKNOWN ROLE"
+    fi
     pgrep tap2tcp >/dev/null && echo "  tap2tcp:      RUNNING" || echo "  tap2tcp:      STOPPED"
     echo ""
     echo "[Interface]"
@@ -1506,12 +1527,13 @@ cmd_status() {
     crontab -l 2>/dev/null | grep -q "rvr-watchdog" && echo "  Status: ACTIVE" || echo "  Status: INACTIVE"
     [ -f "$HEALTH_FILE" ] && { . "$HEALTH_FILE"; echo "  Last: $STATUS ($LAST_CHECK)"; }
     echo ""
-    [ -f "$STATE_FILE" ] && { . "$STATE_FILE"; [ -n "$AIRCRAFT_IP" ] && echo "[Aircraft] $AIRCRAFT_IP"; }
+    [ -f "$STATE_FILE" ] && { . "$STATE_FILE"; [ -n "$AIRCRAFT_IP" ] && echo "[Peer] $AIRCRAFT_IP"; }
 }
 
 cmd_remote() {
-    local AIRCRAFT_IP=$(require_aircraft_ip "$1")
-    check_aircraft_reachable "$AIRCRAFT_IP" || { echo "Aircraft unreachable"; exit 1; }
+    local AIRCRAFT_IP=$(get_aircraft_ip "$1" 2>/dev/null)
+    [ -z "$AIRCRAFT_IP" ] && { echo "No peer configured. Bind to a peer first."; return 1; }
+    check_aircraft_reachable "$AIRCRAFT_IP" || { echo "Peer unreachable"; return 1; }
     ssh_aircraft "$AIRCRAFT_IP" '
         echo "=== Aircraft Status ==="
         pgrep -f kcptun-client >/dev/null && echo "kcptun-client: RUNNING" || echo "kcptun-client: STOPPED"
@@ -1527,7 +1549,7 @@ cmd_remote() {
 cmd_logs() { logread 2>/dev/null | grep -iE "tap2tcp|kcptun|rvr" | tail -"${1:-20}"; }
 
 cmd_debug() {
-    local AIRCRAFT_IP=$(require_aircraft_ip "$1")
+    local AIRCRAFT_IP=$(get_aircraft_ip "$1" 2>/dev/null)
     cmd_status
     echo "=== Logs ===" && cmd_logs 10
     echo "=== Watchdog Log ===" && tail -10 /tmp/rvr-watchdog.log 2>/dev/null || echo "None"
@@ -2135,20 +2157,11 @@ cmd_update() {
         echo "$branch" > "$WEBUI_CONFIG_DIR/branch"
     fi
 
-    # Restart bridge if it was running (role-agnostic — works on both GCS and aircraft)
+    # Restart bridge if it was running — invoke the NEW binary on disk
+    # (this process is running the old pre-update code from memory)
     if pgrep tap2tcp >/dev/null 2>&1; then
         log_info "Restarting bridge to apply updates..."
-        stop_local_services
-        sleep $SERVICE_RESTART_DELAY
-        start_local_services
-        local restart_rc=$?
-        # Start remote peer services + wait for bridge only if we know the peer
-        local peer_ip=$(get_aircraft_ip 2>/dev/null)
-        if [ -n "$peer_ip" ]; then
-            start_aircraft_services "$peer_ip" 2>/dev/null || true
-            wait_for_bridge || restart_rc=1
-        fi
-        if [ $restart_rc -ne 0 ]; then
+        if ! /usr/bin/rvr restart 2>&1; then
             log_warn "Bridge restart failed after update"
             echo ""
             echo "Update applied but bridge failed to restart. ($branch:$new_hash)"

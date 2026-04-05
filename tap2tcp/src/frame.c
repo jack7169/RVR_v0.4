@@ -57,8 +57,11 @@ int frame_write(struct stream *s, const uint8_t *eth, uint16_t len, uint16_t fla
 
     /* Already have buffered data — append */
     if (s->wlen + total > WRITE_BUF_SIZE) {
-        LOG_WARN("stream[%d] write buffer full, dropping frame (%zu bytes)", s->slot, total);
-        return -1;
+        /* Buffer full — drop this frame but keep stream alive.
+         * TCP backpressure is expected during bursts (e.g. iperf3);
+         * kcptun handles retransmission at the KCP layer. */
+        LOG_DBG("stream[%d] write buffer full, dropping frame (%zu bytes)", s->slot, total);
+        return 0;
     }
 
     memcpy(s->wbuf + s->wlen, hdr, FRAME_HDR_LEN);

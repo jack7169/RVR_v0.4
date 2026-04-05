@@ -1,5 +1,6 @@
 #include "../include/tap2tcp.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
@@ -126,6 +127,12 @@ int stream_accept(struct tap2tcp_ctx *ctx)
 
     struct stream *s = &ctx->streams[idx];
     stream_init(s, idx);
+    s->wbuf = malloc(WRITE_BUF_SIZE);
+    if (!s->wbuf) {
+        LOG_ERR("stream[%d] malloc wbuf failed", idx);
+        close(fd);
+        return -1;
+    }
     s->fd = fd;
     s->state = STREAM_ACTIVE;
     s->last_active = time(NULL);
@@ -176,6 +183,12 @@ int stream_connect(struct tap2tcp_ctx *ctx)
 
     struct stream *s = &ctx->streams[idx];
     stream_init(s, idx);
+    s->wbuf = malloc(WRITE_BUF_SIZE);
+    if (!s->wbuf) {
+        LOG_ERR("stream[%d] malloc wbuf failed", idx);
+        close(fd);
+        return -1;
+    }
     s->fd = fd;
     s->last_active = time(NULL);
 
@@ -253,6 +266,7 @@ void stream_close(struct tap2tcp_ctx *ctx, int idx)
     /* Remove flow entries pointing to this stream */
     flow_remove_stream(ctx, idx);
 
+    free(s->wbuf);
     stream_init(s, idx);
     ctx->stream_count--;
 }

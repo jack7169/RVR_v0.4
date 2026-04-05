@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Play, Square, RotateCcw, Bug, Zap, Gauge } from 'lucide-react';
 import type { StatusResponse } from '../api/types';
 import { executeCommand } from '../api/client';
@@ -14,6 +14,8 @@ interface Props {
 export function BridgeControls({ status, onRefresh }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
   const [output, setOutput] = useState<{ title: string; text: string } | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
   const { toast } = useToast();
 
   const run = async (action: string, label: string, showOutput = false) => {
@@ -33,59 +35,71 @@ export function BridgeControls({ status, onRefresh }: Props) {
     }
   };
 
-  const runSpeedtest = async () => {
-    if (!status.aircraft.tailscale_ip) {
+  const runStreamingTest = (action: string, title: string, loadingKey: string) => {
+    const ip = status.aircraft.tailscale_ip;
+    if (!ip) {
       toast('No aircraft bound', 'error');
       return;
     }
-    setLoading('speedtest');
-    try {
-      const ip = status.aircraft.tailscale_ip;
-      const testRes = await fetch('/cgi-bin/api.cgi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'speedtest',
-          aircraft_ip: ip,
-        }),
-      });
-      const data = await testRes.json();
-      setOutput({
-        title: 'Speed Test Results',
-        text: data.output || data.error || 'No results',
-      });
-    } catch (e) {
-      toast(`Speed test failed: ${e instanceof Error ? e.message : 'Unknown'}`, 'error');
-    } finally {
+
+    // Close any existing stream
+    esRef.current?.close();
+
+    setLoading(loadingKey);
+    setStreaming(true);
+    setOutput({ title, text: '' });
+
+    const es = new EventSource(`/cgi-bin/test-stream.cgi?action=${action}&ip=${encodeURIComponent(ip)}`);
+    esRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.output) {
+          setOutput(prev => prev ? { ...prev, text: prev.text + (prev.text ? '\n\n' : '') + data.output } : prev);
+        }
+      } catch { /* ignore parse errors */ }
+    };
+
+    es.addEventListener('done', () => {
+      es.close();
+      esRef.current = null;
       setLoading(null);
-    }
+      setStreaming(false);
+    });
+
+    es.addEventListener('error', (event) => {
+      // Check if this is a custom error event with data
+      const me = event as MessageEvent;
+      if (me.data) {
+        try {
+          const data = JSON.parse(me.data);
+          if (data.error) {
+            setOutput(prev => prev ? { ...prev, text: prev.text + '\n\nError: ' + data.error } : prev);
+          }
+        } catch { /* ignore */ }
+      }
+      es.close();
+      esRef.current = null;
+      setLoading(null);
+      setStreaming(false);
+    });
+
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        esRef.current = null;
+        setLoading(null);
+        setStreaming(false);
+      }
+    };
   };
 
-  const runPacketStorm = async () => {
-    if (!status.aircraft.tailscale_ip) {
-      toast('No aircraft bound', 'error');
-      return;
-    }
-    setLoading('storm');
-    try {
-      const res = await fetch('/cgi-bin/api.cgi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'packet_storm',
-          aircraft_ip: status.aircraft.tailscale_ip,
-        }),
-      });
-      const data = await res.json();
-      setOutput({
-        title: 'Packet Storm Results',
-        text: data.output || data.error || 'No results',
-      });
-    } catch (e) {
-      toast(`Packet storm failed: ${e instanceof Error ? e.message : 'Unknown'}`, 'error');
-    } finally {
-      setLoading(null);
-    }
+  const handleClose = () => {
+    esRef.current?.close();
+    esRef.current = null;
+    setLoading(null);
+    setStreaming(false);
+    setOutput(null);
   };
 
   return (
@@ -101,10 +115,10 @@ export function BridgeControls({ status, onRefresh }: Props) {
 
         <div className="text-sm font-semibold mt-4 mb-2">Link Tests</div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="primary" size="sm" loading={loading === 'speedtest'} onClick={runSpeedtest} disabled={!status.aircraft.tailscale_ip}>
+          <Button variant="primary" size="sm" loading={loading === 'speedtest'} onClick={() => runStreamingTest('speedtest', 'Speed Test Results', 'speedtest')} disabled={!status.aircraft.tailscale_ip}>
             <Gauge className="w-3 h-3" /> Speed Test
           </Button>
-          <Button variant="warning" size="sm" loading={loading === 'storm'} onClick={runPacketStorm} disabled={!status.aircraft.tailscale_ip}>
+          <Button variant="warning" size="sm" loading={loading === 'storm'} onClick={() => runStreamingTest('packet_storm', 'Packet Storm Results', 'storm')} disabled={!status.aircraft.tailscale_ip}>
             <Zap className="w-3 h-3" /> Packet Storm
           </Button>
         </div>
@@ -113,9 +127,10 @@ export function BridgeControls({ status, onRefresh }: Props) {
 
       <CommandOutput
         open={output !== null}
-        onClose={() => setOutput(null)}
+        onClose={handleClose}
         title={output?.title || ''}
         output={output?.text || ''}
+        streaming={streaming}
       />
     </>
   );

@@ -18,7 +18,7 @@
 #define GC_INTERVAL      10    /* seconds between flow garbage collection */
 #define CONNECT_RETRY_MS 1000  /* ms between reconnect attempts (client) */
 #define READ_BUF_SIZE    (FRAME_HDR_LEN + MAX_FRAME_LEN + 64)
-#define WRITE_BUF_SIZE   (FRAME_HDR_LEN + MAX_FRAME_LEN) * 4
+#define WRITE_BUF_SIZE   (1024 * 1024)  /* 1MB — absorb bursts during TCP backpressure */
 
 /* Frame header: [2B length BE][2B sequence number BE]
  * Sequence wraps at 65535. Used for gap detection on receiver. */
@@ -51,8 +51,8 @@ struct stream {
     uint8_t   rbuf[READ_BUF_SIZE];
     size_t    rlen;
 
-    /* Write buffer */
-    uint8_t   wbuf[WRITE_BUF_SIZE];
+    /* Write buffer (dynamically allocated per active stream) */
+    uint8_t  *wbuf;
     size_t    wlen;
     struct timespec wbuf_oldest;  /* timestamp of oldest data in wbuf */
 

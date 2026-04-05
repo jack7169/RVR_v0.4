@@ -10,7 +10,7 @@ Multi-stream Layer 2 bridge for BVLOS remotely piloted aircraft over Starlink sa
 - **Latency thresholds** — soft/hard drop at 1s/2s prevents stale data from consuming bandwidth
 - **Web UI with binding management** — discover VPN peers, one-click aircraft binding with real-time setup logs
 - **VPN-agnostic peer discovery** — WireGuard peer enumeration + HTTP probes, works on Tailscale/Headscale/raw WG
-- **Speed test + packet storm** — iperf3 TCP/UDP through the bridge (not WAN), with pre/post error checking
+- **Speed test + packet storm** — iperf3 TCP/UDP through the bridge (not WAN), with SSE live streaming and pre/post error checking
 - **Network charts** — recharts area charts with server-side 6h history, instant time window switching
 - **Link profiles** — presets for Starlink Direct (15/150Mbps) and Relay (5/5Mbps) with auto buffer computation
 - **Built-in documentation** — Help tab with quick start guide, link tuning reference, troubleshooting
@@ -156,7 +156,7 @@ RVR_v0.4/
 │       ├── hooks/          # useStatus (React Query), useNetHistory, useLogStream
 │       └── lib/            # utils, zod schemas
 ├── www/                    # Built UI + CGI backend (deployed to device)
-│   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi, discovery.cgi
+│   ├── cgi-bin/            # status.cgi, api.cgi, logs.cgi, discovery.cgi, test-stream.cgi
 │   └── assets/             # Code-split JS/CSS chunks (committed by CI)
 ├── packages/               # Offline .ipk bundle + tap2tcp binary
 ├── docs/                   # Technical reference docs (update system, etc.)
@@ -197,6 +197,7 @@ The watchdog (runs every minute via cron) monitors `/overlay` free space and adj
 - Stats CSV: max 1 write per 3 seconds regardless of poll count
 - Remote status: cached 10 seconds (prevents SSH connection accumulation)
 - SSE log streams: auto-killed after 5 minutes (prevents orphaned processes)
+- SSE test streams: auto-killed after 2 minutes (speedtest/packet storm)
 - Discovery scans: 30-second timeout with process cleanup
 
 ### Monitored Files on /tmp

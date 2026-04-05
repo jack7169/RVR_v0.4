@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AlertTriangle, Clock, Shield, Zap } from 'lucide-react';
 import { fetchOutages } from '../api/client';
 import type { OutageResponse, OutageEvent } from '../api/types';
+import type { TimeWindow } from '../hooks/useNetHistory';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
 
@@ -50,11 +51,19 @@ function OutageTimeline({ outages, windowSeconds }: { outages: OutageEvent[]; wi
   );
 }
 
-type TimeWindow = 3600 | 21600 | 86400;
+const WINDOWS: { label: string; seconds: TimeWindow }[] = [
+  { label: '15s', seconds: 15 },
+  { label: '1m', seconds: 60 },
+  { label: '5m', seconds: 300 },
+  { label: '15m', seconds: 900 },
+  { label: '1h', seconds: 3600 },
+  { label: '6h', seconds: 21600 },
+  { label: '24h', seconds: 86400 },
+];
 
 export function OutagePanel() {
   const [data, setData] = useState<OutageResponse | null>(null);
-  const [window, setWindow] = useState<TimeWindow>(3600);
+  const [window, setWindow] = useState<TimeWindow>(900);
 
   useEffect(() => {
     const load = () => { fetchOutages().then(setData).catch(() => {}); };
@@ -110,11 +119,7 @@ export function OutagePanel() {
           )}
         </div>
         <div className="flex gap-1">
-          {([
-            { label: '1h', seconds: 3600 as TimeWindow },
-            { label: '6h', seconds: 21600 as TimeWindow },
-            { label: '24h', seconds: 86400 as TimeWindow },
-          ]).map(w => (
+          {WINDOWS.map(w => (
             <button
               key={w.seconds}
               onClick={() => setWindow(w.seconds)}

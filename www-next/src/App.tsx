@@ -52,7 +52,7 @@ function Skeleton({ height = 'h-48' }: { height?: string }) {
 }
 
 function TrafficPanels({ status, lastUpdate }: { status: import('./api/types').StatusResponse; lastUpdate: Date | null }) {
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>(60);
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>(900);
   const { getWindow, current, revision } = useNetHistory(status);
   const data = useMemo(() => getWindow(timeWindow), [getWindow, timeWindow, revision]);
 

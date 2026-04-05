@@ -15,6 +15,7 @@ const WINDOWS: { label: string; seconds: TimeWindow }[] = [
   { label: '15m', seconds: 900 },
   { label: '1h', seconds: 3600 },
   { label: '6h', seconds: 21600 },
+  { label: '24h', seconds: 86400 },
 ];
 
 function StatTile({ icon, label, value, sub, color }: {

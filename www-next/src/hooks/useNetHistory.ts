@@ -2,7 +2,7 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import type { StatusResponse } from '../api/types';
 import { fetchStatsHistory } from '../api/client';
 
-export type TimeWindow = 15 | 60 | 300 | 900 | 3600 | 21600;
+export type TimeWindow = 15 | 60 | 300 | 900 | 3600 | 21600 | 86400;
 
 export interface DataPoint {
   time: string;

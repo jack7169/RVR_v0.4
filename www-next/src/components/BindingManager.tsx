@@ -17,6 +17,8 @@ import { useStatus } from '../hooks/useStatus';
 interface Props {
   onRefresh: () => void;
   bridgeConnected: boolean;
+  gcsVersion?: string;
+  aircraftVersion?: string;
 }
 
 type Filter = 'all' | 'online' | 'unbound';
@@ -581,7 +583,7 @@ function LinkSettingsPanel({ refreshKey }: { refreshKey: number }) {
 
 // ── Main Binding Manager ──────────────────────────────────────────────
 
-export function BindingManager({ onRefresh, bridgeConnected }: Props) {
+export function BindingManager({ onRefresh, bridgeConnected, gcsVersion, aircraftVersion }: Props) {
   const [discovery, setDiscovery] = useState<PeerDiscovery | null>(null);
   const [profiles, setProfiles] = useState<AircraftProfiles | null>(null);
   const [filter, setFilter] = useState<Filter>('online');
@@ -804,10 +806,9 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                   <div className="text-xs font-mono text-text-secondary">{selfPeer?.ip || '—'}</div>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-xs text-success">online</span>
-                    {selfPeer?.git_version && selfPeer.git_version !== 'unknown' && (
+                    {(gcsVersion || selfPeer?.git_version) && (gcsVersion || selfPeer?.git_version) !== 'unknown' && (
                       <span className="text-xs font-mono text-text-secondary">
-                        {selfPeer.git_branch && selfPeer.git_branch !== 'main' && <span className="text-accent">{selfPeer.git_branch}:</span>}
-                        {selfPeer.git_version.slice(0, 7)}
+                        {(gcsVersion || selfPeer?.git_version || '').slice(0, 7)}
                       </span>
                     )}
                   </div>
@@ -851,10 +852,9 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
                     <span className={cn('text-xs', peerOnline ? 'text-success' : 'text-error')}>
                       {aircraftPeer?.connection_mode || 'unknown'}
                     </span>
-                    {aircraftPeer?.git_version && aircraftPeer.git_version !== 'unknown' && (
+                    {(aircraftVersion || aircraftPeer?.git_version) && (aircraftVersion || aircraftPeer?.git_version) !== 'unknown' && (
                       <span className="text-xs font-mono text-text-secondary">
-                        {aircraftPeer.git_branch && aircraftPeer.git_branch !== 'main' && <span className="text-accent">{aircraftPeer.git_branch}:</span>}
-                        {aircraftPeer.git_version.slice(0, 7)}
+                        {(aircraftVersion || aircraftPeer?.git_version || '').slice(0, 7)}
                       </span>
                     )}
                   </div>
@@ -885,13 +885,12 @@ export function BindingManager({ onRefresh, bridgeConnected }: Props) {
               )}
 
               {/* Version mismatch warning */}
-              {selfPeer?.git_version && aircraftPeer?.git_version
-                && selfPeer.git_version !== 'unknown' && aircraftPeer.git_version !== 'unknown'
-                && selfPeer.git_version !== aircraftPeer.git_version
-                && selfPeer.git_branch === aircraftPeer?.git_branch && (
+              {gcsVersion && aircraftVersion
+                && gcsVersion !== 'unknown' && aircraftVersion !== 'unknown'
+                && gcsVersion !== aircraftVersion && (
                 <div className="mt-3 bg-warning/10 border border-warning/30 rounded-lg p-3 flex items-center justify-between gap-3">
                   <div className="text-xs text-warning">
-                    Version mismatch: GCS <code>{selfPeer.git_version.slice(0, 7)}</code> ≠ Aircraft <code>{aircraftPeer.git_version.slice(0, 7)}</code>
+                    Version mismatch: GCS <code>{gcsVersion.slice(0, 7)}</code> ≠ Aircraft <code>{aircraftVersion.slice(0, 7)}</code>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <Button size="sm" variant="warning" loading={syncing} onClick={async () => {

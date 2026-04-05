@@ -224,7 +224,7 @@ export default function App() {
 
         {activeTab === 'binding' && (
           <Suspense fallback={<Skeleton height="h-96" />}>
-            <BindingManager onRefresh={refresh} bridgeConnected={status?.connection.established ?? false} />
+            <BindingManager onRefresh={refresh} bridgeConnected={status?.connection.established ?? false} gcsVersion={status?.version.current} aircraftVersion={status?.aircraft.git_version} />
           </Suspense>
         )}
 

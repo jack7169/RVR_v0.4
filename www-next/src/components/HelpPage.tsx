@@ -183,10 +183,31 @@ function Troubleshooting() {
         <div>
           <h4 className="font-medium text-error mb-1">High latency or packet loss</h4>
           <ul className="list-disc list-inside space-y-1">
-            <li>Check Starlink signal quality in the Starlink app</li>
+            <li>Check <strong>Starlink Link Quality</strong> panel on the Dashboard — shows outage events with causes (NO_PINGS, OBSTRUCTED, etc.)</li>
             <li>Use Packet Capture to analyze traffic: look for retransmissions, duplicate ACKs</li>
             <li>Try adjusting KCP settings in Binding &gt; Link Settings: lower interval, lower resend threshold</li>
-            <li>Check if the VPN is using a relay (indirect routing adds latency)</li>
+            <li>Check <strong>Link Mode</strong> in the Binding tab — "relay" adds latency vs "direct" peer-to-peer</li>
+            <li>The link profile auto-selects based on measured mode. Click <strong>Apply Profile</strong> to push buffer changes.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-medium text-error mb-1">Starlink panel shows "query failed" or "Waiting for dish"</h4>
+          <ul className="list-disc list-inside space-y-1">
+            <li>The GCS must have a network route to <code className="bg-bg-primary px-1 rounded">192.168.100.1</code> (Starlink dish local IP)</li>
+            <li>Verify: <code className="bg-bg-primary px-1 rounded">ping 192.168.100.1</code> from the GCS router</li>
+            <li>Python 3 and grpcio must be installed on the GCS</li>
+            <li>The panel reads outage events directly from the dish via gRPC (same data as the Starlink app)</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-medium text-error mb-1">Version mismatch between GCS and Aircraft</h4>
+          <ul className="list-disc list-inside space-y-1">
+            <li>A yellow warning banner appears when versions differ. Click <strong>Update Aircraft</strong> to sync.</li>
+            <li>Use the update modal to update both devices at once (select both checkboxes)</li>
+            <li>After update, the aircraft restarts its own services automatically</li>
+            <li>CLI: <code className="bg-bg-primary px-1 rounded">rvr update</code> works on both GCS and aircraft</li>
           </ul>
         </div>
       </div>

@@ -5,7 +5,7 @@ Kuruka RVR v0.4 is an L2 bridge for BVLOS remotely piloted aircraft over Starlin
 
 ## Architecture
 ```
-br-lan -> TAP (rvr) -> tap2tcp -> N TCP connections -> kcptun (smux v2) -> KCP/UDP -> Tailscale -> Starlink
+br-lan -> TAP (rvr_bridge) -> tap2tcp -> N TCP connections -> kcptun (smux v2) -> KCP/UDP -> Tailscale -> Starlink
 ```
 
 tap2tcp classifies Ethernet frames by asymmetric src+dst MAC pair. Each direction between two devices gets its own TCP connection -> smux stream, guaranteeing per-direction ordering without cross-device head-of-line blocking. Broadcast/multicast always uses stream 0.
@@ -40,6 +40,7 @@ cd tap2tcp && make cross    # requires aarch64-linux-musl-gcc
 
 ## Key Constraints
 - tap2tcp must be a static binary (~50KB) with zero runtime deps
+- TAP interface name is `rvr_bridge` (must match -t flag in init scripts AND up/down scripts)
 - kcptun local ports are TCP-only; each TCP connection = one smux stream
 - Bundle .ipk packages in repo — avoid `opkg update` on routers
 - /tmp is tmpfs (RAM) — cap all logs, never write unbounded data there
@@ -55,6 +56,12 @@ cd tap2tcp && make cross    # requires aarch64-linux-musl-gcc
 - Uninstall must remove uhttpd config + restart + kill orphaned CGI processes BEFORE removing any packages (Python segfault from grpcio removal crashes GL-BE3600)
 - Install footprint is ~85MB on /overlay (repo + packages + Python + pip packages)
 - STP is runtime-only (`ip link set stp_state 1`) — never persisted via UCI
+- BusyBox `tr` does NOT support POSIX character classes — use `tr 'A-Z' 'a-z'` not `tr '[:upper:]' '[:lower:]'`
+- CLI script runs on BOTH GCS and aircraft — use `get_local_role()` for role detection, never hardcode kcptun-server
+- Role detection: `[ -f /etc/init.d/kcptun-server ]` = GCS, `[ -f /etc/init.d/kcptun-client ]` = aircraft
+- After `rvr update`, the running shell process has OLD code — restart must invoke `/usr/bin/rvr restart` (new binary on disk)
+- Discovery cache (`/tmp/rvr-discovery-cache.json`) must be invalidated after bind, unbind, and update operations
+- Starlink dish has 900s ring buffer + structured `history.outages` array (GPS timestamps, cause enums)
 
 ## Conventions
 - `rvr` is the single CLI entry point with subcommands (setup, start, stop, status, profile, unbind, etc.)
@@ -66,6 +73,9 @@ cd tap2tcp && make cross    # requires aarch64-linux-musl-gcc
 - Boot recovery via rc.local
 - No authentication in tap2tcp — Tailscale provides WireGuard encryption
 - Bridge firewall: 3 layers of loop prevention (see docs/bridge-firewall-rules.md)
-- Starlink dish outage data fetched via Python + starlink_grpc (shared with Starnav project)
+- Starlink outage data read from dish `history.outages` array (GPS epoch timestamps, cause enums), cached 30s
 - Web UI dashboard order: Bridge Traffic → KCPtun Link Quality → WAN Traffic → Starlink Link Quality
+- Version mismatch banner (GCS ≠ Aircraft) shown globally when connected
+- Link profile auto-selects preset based on measured VPN mode (direct/relay)
+- Summary stats computed client-side for instant window switching (Starlink + KCPtun panels)
 - Uninstall order: deregister uhttpd → stop services → remove watchdog → remove config → remove packages → remove files

@@ -1290,14 +1290,16 @@ update_both_action() {
 
     : > /tmp/rvr-setup.log
     (
-        echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..."
-        "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
-        local rc_local=$?
-        echo "" >> /tmp/rvr-setup.log
-
-        echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
+        # Remote FIRST — VPN tunnel still intact before local bridge restart
+        echo "[UPDATE REMOTE] Starting update on $ip${branch:+ (branch: $branch)}..."
         _ssh_remote "$ip" "rvr update $branch_arg" >> /tmp/rvr-setup.log 2>&1
         local rc_remote=$?
+        echo "" >> /tmp/rvr-setup.log
+
+        # Local SECOND — bridge restart at end won't affect remote
+        echo "[UPDATE LOCAL] Starting update on $(cat /proc/sys/kernel/hostname 2>/dev/null || echo unknown)${branch:+ (branch: $branch)}..." >> /tmp/rvr-setup.log
+        "$RVR_BIN" update $branch_arg >> /tmp/rvr-setup.log 2>&1
+        local rc_local=$?
 
         rm -f "$DISCOVERY_CACHE"
         run_discovery_scan >/dev/null 2>&1 &

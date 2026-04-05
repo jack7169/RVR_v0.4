@@ -9,11 +9,12 @@ interface Props {
   open: boolean;
   onClose: () => void;
   status: StatusResponse;
+  defaultTarget?: 'default' | 'aircraft';
 }
 
 type Phase = 'select' | 'running' | 'done';
 
-export function UpdateModal({ open, onClose, status }: Props) {
+export function UpdateModal({ open, onClose, status, defaultTarget }: Props) {
   const [updateGcs, setUpdateGcs] = useState(true);
   const [updateAircraft, setUpdateAircraft] = useState(false);
   const [phase, setPhase] = useState<Phase>('select');
@@ -35,8 +36,8 @@ export function UpdateModal({ open, onClose, status }: Props) {
       setPhase('select');
       setLog('');
       setSuccess(false);
-      setUpdateGcs(true);
-      setUpdateAircraft(false);
+      setUpdateGcs(defaultTarget !== 'aircraft');
+      setUpdateAircraft(defaultTarget === 'aircraft');
       setSelectedBranch(currentBranch);
       // Fetch available branches
       setLoadingBranches(true);

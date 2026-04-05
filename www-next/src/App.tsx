@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { useStatus } from './hooks/useStatus';
 import { Header, type AppTab } from './components/Header';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -148,9 +149,9 @@ export default function App() {
         <div className="bg-warning/15 border-b border-warning/30 px-4 py-2">
           <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-warning font-medium">Version mismatch:</span>
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
               <span className="text-text-primary">
-                GCS <code className="text-xs">{status.version.current.slice(0, 7)}</code> &ne; Aircraft <code className="text-xs">{status.aircraft.git_version.slice(0, 7)}</code>
+                Version mismatch: GCS <code className="text-xs">{status.version.current.slice(0, 7)}</code> &ne; Aircraft <code className="text-xs">{status.aircraft.git_version.slice(0, 7)}</code>
               </span>
             </div>
             <button
